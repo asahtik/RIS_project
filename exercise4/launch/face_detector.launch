@@ -1,0 +1,15 @@
+<launch>
+
+  <node pkg="exercise4" type="face_localizer_dnn" name="face_localizer" output="screen">
+    <param name="proto_loc" value="$(find exercise4)/scripts/" type="string" />
+  </node>
+
+  <node pkg="exercise4" type="face_clustering" name="face_clustering">
+    <param name="min_dist" value="0.6" type="double" />
+    <param name="max_angle" value="1.5" type="double" />
+    <param name="min_det" value="2" type="int" />
+  </node>
+
+  <node pkg="sound_play" type="soundplay_node.py" name="soundplay" />
+
+</launch>
