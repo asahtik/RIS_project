@@ -1,0 +1,394 @@
+#!/usr/bin/env python
+from __future__ import print_function
+
+import sys
+import rospy
+import dlib
+import cv2
+import numpy as np
+import tf2_geometry_msgs
+import tf2_ros
+# import matplotlib.pyplot as plt
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import PointStamped, Vector3, Pose, PoseWithCovarianceStamped
+from cv_bridge import CvBridge, CvBridgeError
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import ColorRGBA, Bool
+from hw4.msg import GoalToExplore
+
+# Publisher for goals
+goal_pub = rospy.Publisher('/add_goals', GoalToExplore, queue_size=100)
+
+def send_new_goal(x,y,z,w):
+		new_goal = GoalToExplore() 
+		new_goal.x = x
+		new_goal.y = y
+		new_goal.z = z
+		new_goal.w = w
+		print("Sending new goal! {} {} {} {}".format(x,y,z,w))
+		global goal_pub
+		goal_pub.publish(new_goal)
+
+def end_callback(data):
+	if data:
+		rospy.signal_shutdown("Finished exploring the space.")
+
+
+class face_localizer:
+	def __init__(self):
+		rospy.init_node('face_localizer', anonymous=True)
+
+		# subscribe to end topic to get shutdown message
+		end_exploring = rospy.Subscriber('/end', Bool, end_callback)
+
+		# An object we use for converting images between ROS format and OpenCV format
+		self.cv_bridge = CvBridge()
+
+		# The function for performin HOG face detection
+		self.face_detector = dlib.get_frontal_face_detector()
+
+		# A help variable for holding the dimensions of the image
+		self.dims = (0, 0, 0)
+
+		# Marker array object used for showing markers in Rviz
+		self.marker_array = MarkerArray()
+		self.marker_num = 1
+
+		self.true_faces_detected = []
+		self.second_faces = []
+		self.markers_unpublished = []
+
+		# Subscribe to the image and/or depth topic
+		# self.image_sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.image_callback)
+		# self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
+
+		# Publisher for the visualization markers
+		self.markers_pub = rospy.Publisher('face_markers', MarkerArray, queue_size=100)
+
+		# Object we use for transforming between coordinate frames
+		self.tf_buf = tf2_ros.Buffer()
+		self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
+
+	def get_pose(self, coords, dist, stamp):
+		# Calculate the position of the detected face
+
+		k_f = 554  # kinect focal length in pixels
+
+		x1, x2, y1, y2 = coords
+
+		face_x = self.dims[1] / 2 - (x1 + x2) / 2.
+		face_y = self.dims[0] / 2 - (y1 + y2) / 2.
+
+		angle_to_target = np.arctan2(face_x, k_f)
+
+		# Get the angles in the base_link relative coordinate system
+		x, y = dist * np.cos(angle_to_target), dist * np.sin(angle_to_target)
+
+		### Define a stamped message for transformation - directly in "base_link"
+		# point_s = PointStamped()
+		# point_s.point.x = x
+		# point_s.point.y = y
+		# point_s.point.z = 0.3
+		# point_s.header.frame_id = "base_link"
+		# point_s.header.stamp = rospy.Time(0)
+
+		# Define a stamped message for transformation - in the "camera rgb frame"
+		point_s = PointStamped()
+		point_s.point.x = -y
+		point_s.point.y = 0
+		point_s.point.z = x
+		point_s.header.frame_id = "camera_depth_optical_frame"
+		point_s.header.stamp = stamp
+
+		# Get the point in the "map" coordinate system
+		try:
+			point_world = self.tf_buf.transform(point_s, "map")
+
+			# Create a Pose object with the same position
+			pose = Pose()
+			pose.position.x = point_world.point.x
+			pose.position.y = point_world.point.y
+			pose.position.z = point_world.point.z
+		except Exception as e:
+			print(e)
+			pose = None
+
+		return pose
+
+
+	def find_faces(self):
+		rgb_image = depth_image = None
+
+		# Get the next rgb and depth images that are posted from the camera
+		try:
+			rgb_image_message = rospy.wait_for_message("/camera/rgb/image_raw", Image)
+		except Exception as e:
+			rospy.logerr("Did not get raw rgb image".format(e))
+			return 0
+		else:
+			# run on success
+			rospy.logdebug('Successfully got a new rgb image.')
+
+		try:
+			depth_image_message = rospy.wait_for_message("/camera/depth/image_raw", Image)
+		except Exception as e:
+			rospy.logerr("Did not get raw depth image".format(e))
+			return 0
+		else:
+			rospy.logdebug('Successfully got image depth data.')
+
+		# Convert the images into a OpenCV (numpy) format
+
+		try:
+			rgb_image = self.cv_bridge.imgmsg_to_cv2(rgb_image_message, "bgr8")
+		except CvBridgeError as e:
+			rospy.logerr("Could not convert raw rgb img to cv2 format: {}".format(e))
+
+		try:
+			depth_image = self.cv_bridge.imgmsg_to_cv2(depth_image_message, "32FC1")
+		except CvBridgeError as e:
+			rospy.logerr("Could not convert raw depth info to cv2 format: {}".format(e))
+
+		# Set the dimensions of the image
+		self.dims = rgb_image.shape  # todo: do after crop?
+
+		# crop image - do not detect real humans and speed up processing time
+		rgb_image = rgb_image[75:-175, 10:-10]
+		depth_image = depth_image[75:-175, 10:-10]
+		# cv2.imshow("after crop", img)
+		# cv2.waitKey(1)
+
+		# Transform image to grayscale
+		img = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+
+		# Do histogram equalization
+		# img = cv2.equalizeHist(img)   # todo: the face detection was better without this - useful maybe for later?
+		# cv2.imshow("gray, before crop", img)
+		# cv2.waitKey(1)
+
+		# Detect the faces in the image
+		face_rectangles = self.face_detector(img, 1)
+
+		face_bounding_boxes = img.copy()
+
+		# we subscribe to /amcl_pose so we can get a position of the robot for calculating new goals 
+		current_position = rospy.wait_for_message("/amcl_pose",PoseWithCovarianceStamped)
+		position_x = current_position.pose.pose.position.x
+		position_y = current_position.pose.pose.position.y
+		orientation_z = current_position.pose.pose.orientation.z
+		orientation_w = current_position.pose.pose.orientation.w
+
+		 # For each detected face, extract the depth from the depth image
+		for face_rectangle in face_rectangles:
+			rospy.loginfo("{} faces were detected.".format(len(face_rectangles)))
+
+			# The coordinates of the rectangle
+			x1 = face_rectangle.left()
+			x2 = face_rectangle.right()
+			y1 = face_rectangle.top()
+			y2 = face_rectangle.bottom()
+
+			# rospy.logdebug("Face rectangle: top left: [x:{},y:{}]; bottom right: [x:{},y:{}]".format(x1, y1, x2, y2))
+
+			# Extract region containing face
+			# face_region = rgb_image[y1:y2, x1:x2]
+
+			# Visualize the extracted face
+			face_bounding_boxes = cv2.rectangle(face_bounding_boxes,
+												(x1, y1),
+												(x2, y2),
+												(0, 255, 0),  # should be green
+												2)  # thickness
+
+
+			# parameters we can adjust 
+			# how much apart do we count the detections to be the same face when looking for a second detection (and sending a goal to explore the space)
+			SPACE_TO_COUNT_SECOND_MARKER = 0.5
+			# how much apart do we count the detections to be the same, true face when looking for a fifth (or less or more) detection
+			SPACE_TO_COUNT_A_TRUE_FACE = 0.2
+			# when the true faces are already detected - how much apart should two faces be
+			SPACE_BETWEEN_TRUE_FACES = 0.6
+			# how many detections do we need to count it as a true face
+			TRUE_FACE = 10
+
+
+			# Find the distance to the detected face
+			face_distance = float(np.nanmean(depth_image[y1:y2, x1:x2]))
+
+			# rospy.loginfo("Distance to face: {}".format(face_distance))
+
+			# Get the time that the depth image was recieved
+			depth_time = depth_image_message.header.stamp
+
+			# Find the location of the detected face
+			pose = self.get_pose((x1, x2, y1, y2), face_distance, depth_time)
+
+			if pose is not None:
+				new_face = True
+				is_a_true_face = False
+				second_face = False
+				counter_true = 0
+				counter_second = 0
+				sum_x_true_face = 0
+				sum_y_true_face = 0
+				sum_z_true_face = 0
+				sum_x_second = 0
+				sum_y_second = 0
+				sum_z_second = 0
+
+				# check if found face is not near another marker
+				if self.marker_array.markers:
+					for mark in self.marker_array.markers:
+						# find TRUE_FACE faces at the same spot
+						if np.abs(pose.position.x - mark.pose.position.x) + np.abs(pose.position.y - mark.pose.position.y) < SPACE_TO_COUNT_A_TRUE_FACE:
+							new_face = False
+							sum_x_true_face += mark.pose.position.x
+							sum_y_true_face += mark.pose.position.y
+							sum_z_true_face += mark.pose.position.z
+							counter_true += 1
+						# find two faces at the same spot
+						if np.abs(pose.position.x - mark.pose.position.x) + np.abs(pose.position.y - mark.pose.position.y) < SPACE_TO_COUNT_SECOND_MARKER:
+							new_face = False
+							sum_x_second += mark.pose.position.x
+							sum_y_second += mark.pose.position.y
+							sum_z_second += mark.pose.position.z
+							counter_second += 1
+
+				if counter_true >= TRUE_FACE: 
+					# more than TRUE_FACE detections in the area - count as true face
+					is_a_true_face = True
+				elif counter_second == 2: 
+					# second detection in the area - move closer to it to see if it is a face, make a new goal
+					second_face = True
+
+
+				# check through true_faces if there is already another "true face" in proximity
+				if self.true_faces_detected:
+					for face in self.true_faces_detected:
+						if np.abs(pose.position.x - face.pose.position.x) + np.abs(pose.position.y - face.pose.position.y) < SPACE_BETWEEN_TRUE_FACES:
+							is_a_true_face = False
+							break
+
+				if is_a_true_face:
+					# the detector detected the face on four places in proximity. We count this as a true face. Display a green marker.
+					#print("Found a face!")
+					# we calculate position as the average of all four detections
+					pose.position.x = sum_x_true_face/counter_true
+					pose.position.y = sum_y_true_face/counter_true
+					pose.position.z = sum_z_true_face/counter_true
+
+					self.marker_num += 1
+					marker = Marker()
+					marker.header.stamp = rospy.Time(0)
+					marker.header.frame_id = 'map'
+					marker.pose = pose
+					marker.type = Marker.CUBE
+					marker.action = Marker.ADD
+					marker.frame_locked = False
+					marker.lifetime = rospy.Duration.from_sec(20)
+					marker.id = self.marker_num
+					marker.scale = Vector3(0.12, 0.12, 0.12)
+					marker.color = ColorRGBA(0, 1, 0, 1)
+					self.true_faces_detected.append(marker)
+					self.marker_array.markers.append(marker)
+
+					self.markers_pub.publish(self.marker_array)
+
+				else: 
+					if second_face:
+						# if the detector setected a face for the second time in proximity, we send the position of it as a goal to go explore the space around it more
+						# for debugging purposes, we display a smaller teal marker
+						
+						print("Second face!")
+						pose.position.x = sum_x_second/counter_second
+						pose.position.y = sum_y_second/counter_second
+						pose.position.z = sum_z_second/counter_second
+
+						self.marker_num += 1
+						marker = Marker()
+						marker.header.stamp = rospy.Time(0)
+						marker.header.frame_id = 'map'
+						marker.pose = pose
+						marker.type = Marker.CUBE
+						marker.action = Marker.ADD
+						marker.frame_locked = False
+						marker.lifetime = rospy.Duration.from_sec(20)
+						marker.id = self.marker_num
+						marker.scale = Vector3(0.08, 0.08, 0.08)
+						marker.color = ColorRGBA(0, 0.5, 0.5, 1)
+						self.marker_array.markers.append(marker)
+						self.markers_pub.publish(self.marker_array)
+													
+						# we send a goal - position of the goal is calculated as a center of the position from which the faces were detected and the detected faces
+						# we should find something smarter --> how could we calculate a goal that is cca 0.5 from the wall????
+						x = (position_x+pose.position.x)/2
+						y = (position_y+pose.position.y)/2
+						# orientation is equal to the orientation the robot was facing when it detected this face
+						z = orientation_z
+						w = orientation_w
+						send_new_goal(x, y, z, w)
+						
+					else:
+						# detector detected more faces, we don't do anything with them
+						# leaving this block for testing purposes (if we try to improve our detector)
+
+						self.marker_num += 1
+						marker = Marker()
+						marker.header.stamp = rospy.Time(0)
+						marker.header.frame_id = 'map'
+						marker.pose = pose
+						marker.type = Marker.CUBE
+						marker.action = Marker.ADD
+						marker.frame_locked = False
+						marker.lifetime = rospy.Duration.from_sec(20)
+						marker.id = self.marker_num
+						marker.scale = Vector3(0.08, 0.08, 0.08)
+						marker.color = ColorRGBA(1, 0, 0, 0.5)
+						self.marker_array.markers.append(marker)
+						self.markers_pub.publish(self.marker_array)
+				
+				# show bounding box around detected faces
+		
+		cv2.imshow(current_view, face_bounding_boxes)
+		cv2.waitKey(1)	
+						
+
+	def depth_callback(self, data):
+
+		try:
+			depth_image = self.cv_bridge.imgmsg_to_cv2(data, "32FC1")
+		except CvBridgeError as e:
+			print(e)
+
+		# Do the necessairy conversion so we can visuzalize it in OpenCV
+
+		image_1 = depth_image / np.nanmax(depth_image)
+		image_1 = image_1 * 255
+
+		image_viz = np.array(image_1, dtype=np.uint8)
+
+		# cv2.imshow("Depth window", image_viz)
+		# cv2.waitKey(1)
+		# plt.imshow(depth_image)
+		# plt.show()
+
+
+def main():
+	face_finder = face_localizer()
+
+	global current_view
+	current_view = "gray face bounding box visualization"
+	cv2.namedWindow(current_view)  # Create a named window
+	cv2.moveWindow(current_view, 40, 30)  # Move it to (40,30)
+
+	rate = rospy.Rate(5)
+	while not rospy.is_shutdown():
+		face_finder.find_faces()
+		rate.sleep()
+
+	cv2.destroyAllWindows()
+
+
+if __name__ == '__main__':
+
+	main()

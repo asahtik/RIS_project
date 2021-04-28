@@ -1,0 +1,8 @@
+float64 max_dist
+float64 max_angle
+Cluster2D[] clusters
+geometry_msgs/Pose[] poses
+---
+Cluster2D[] data
+geometry_msgs/Pose[] clustered_poses
+uint32 no
