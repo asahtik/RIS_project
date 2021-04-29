@@ -16,7 +16,19 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
-
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/common/centroid.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/crop_box.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/point_cloud.h>
 
 #include <math.h>
 #include <sstream>
@@ -27,6 +39,8 @@
 #define MAX_RING_DISTANCE 2.0
 
 ros::Publisher marker_pub;
+
+typedef pcl::PointXYZ PointT;
 
 class tf2_buf {
   public:
@@ -48,7 +62,7 @@ std::string toString(std::vector<cv::Point> &v) {
   return ret.str();
 }
 
-void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::ImageConstPtr &depth_img) {
+void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCloud2ConstPtr &depth_blob) {
   ros::Time start(0);
   
   cv_bridge::CvImageConstPtr cv_rgb = cv_bridge::toCvShare(rgb_img, sensor_msgs::image_encodings::BGR8);
@@ -116,6 +130,24 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Im
     if(y2 > height) y2 = height;
 
     // Get depth
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+    // Read in the cloud data
+    pcl::fromPCLPointCloud2(*depth_blob, *cloud);
+    // Remove invalid points
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_pass (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::CropBox<PointT> boxFilter;
+    boxFilter.setInputCloud(cloud);
+    boxFilter.setMin(Eigen::Vector4f(x1, y1, 0.05));
+    boxFilter.setMax(Eigen::Vector4f(x2, y2, 2.0));
+    boxFilter.filter(*cloud_pass);
+    // TODO publish pointcloud
+
+    // Get centroid
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*cloud_pass, centroid);
+    // TODO check valid centroid ???
+
+    /* // Get depth
     cv_bridge::CvImageConstPtr depth_image_msg = cv_bridge::toCvShare(depth_img, sensor_msgs::image_encodings::TYPE_16UC1);
     cv::Mat depth_image = depth_image_msg->image;
 
@@ -174,7 +206,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Im
       marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {
       ROS_WARN("%s",ex.what());
-    }
+    } */
   }
 }
 
@@ -187,9 +219,9 @@ int main(int argc, char **argv) {
   marker_pub = nh.advertise<visualization_msgs::Marker>("ring_markers", 1000);
 
   message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
-  message_filters::Subscriber<sensor_msgs::Image> depth_sub (nh, "/camera/depth/image_raw", 1);
+  message_filters::Subscriber<pcl::PCLPointCloud2> depth_sub (nh, "/camera/depth/points", 1);
 
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_policy;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, pcl::PCLPointCloud2> sync_policy;
 
   message_filters::Synchronizer<sync_policy> sync(sync_policy(10), rgb_sub, depth_sub);
   sync.registerCallback(boost::bind(&find_rings, _1, _2));
