@@ -23,7 +23,7 @@
 #include <pcl/point_types.h>
 #include <pcl/common/centroid.h>
 #include <pcl/filters/extract_indices.h>
-#include <pcl/filters/crop_box.h>
+#include <pcl/filters/passthrough.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -36,9 +36,12 @@
 
 #define CONTOUR_SIZE 20
 #define ELIPSE_MAX_CENTER_DISTANCE 5.0
-#define MAX_RING_DISTANCE 2.0
+#define MIN_Z 0.1
+#define MAX_Z 2.0
+#define DETECTION_BORDER 2
 
 ros::Publisher marker_pub;
+ros::Publisher ring_cloud_pub;
 
 typedef pcl::PointXYZ PointT;
 
@@ -62,7 +65,7 @@ std::string toString(std::vector<cv::Point> &v) {
   return ret.str();
 }
 
-void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCloud2ConstPtr &depth_blob) {
+void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   ros::Time start(0);
   
   cv_bridge::CvImageConstPtr cv_rgb = cv_bridge::toCvShare(rgb_img, sensor_msgs::image_encodings::BGR8);
@@ -116,35 +119,70 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCl
 
     cv::RotatedRect *outer = (e1_size > e2_size) ? e1 : e2;
     cv::RotatedRect *inner = (e1_size > e2_size) ? e2 : e1;
-    float a = (e1_size > e2_size) ? e1_a : e2_a;
-    float b = (e1_size > e2_size) ? e1_b : e2_b;
+    float a = (e1_a > e2_a) ? e1_a : e2_a;
+    float b = (e1_b > e2_b) ? e1_b : e2_b;
 
     cv::Point center(inner->center.x, inner->center.y);
 
-    float x1 = center.x - a, x2 = center.x + a + 1;
+    float x1 = center.x - a, x2 = center.x + a;
     if(x1 <= 0) x1 = 0;
     if(x2 > width) x2 = width;
 
-    float y1 = center.y - b, y2 = center.y + b + 1;
-    if(y1 <= 0) y1 = 0;
-    if(y2 > height) y2 = height;
+    float y1 = center.y + b, y2 = center.y - b;
+    if(y2 <= 0) y2 = 0;
+    if(y1 > height) y1 = height;
+
+    // ROS_INFO("Center %d %d, a %f, b %f", center.x, center.y, a, b);
+    ROS_INFO("height %f y1 %f, y2 %f", height / 2.0, y1, y2);
+
+    int k_f = 554;
+    float x1_d = x1 - width / 2.0 - DETECTION_BORDER, y1_d = y1 - height / 2.0 + DETECTION_BORDER, x2_d = x2 - width / 2.0 + DETECTION_BORDER, y2_d = y2 - height / 2.0 - DETECTION_BORDER;
+    float h_angle_x1 = atan2(x1_d, k_f), h_angle_x2 = atan2(x2_d, k_f);
+    float v_angle_y1 = atan2(y1_d, k_f), v_angle_y2 = atan2(y2_d, k_f);
+
+    ROS_INFO("h angle x1 %d, h angle x2 %d, v angle y1 %d, v angle y2 %d", (int)(h_angle_x1 * (180 / M_PI)), (int)(h_angle_x2 * (180 / M_PI)), (int)(v_angle_y1 * (180 / M_PI)), (int)(v_angle_y2 * (180 / M_PI)));
 
     // Get depth
+    pcl::PCLPointCloud2 pcl_pc2;
+    pcl_conversions::toPCL(*depth_blob, pcl_pc2);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
     // Read in the cloud data
-    pcl::fromPCLPointCloud2(*depth_blob, *cloud);
+    pcl::fromPCLPointCloud2(pcl_pc2, *cloud);
+    // Create passthrough filter
+    pcl::PointCloud<pcl::PointXYZ> cloud_pass;
+    pcl::PassThrough<pcl::PointXYZ> pass;
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("z");
+    pass.setFilterLimits(MIN_Z, MAX_Z);
+    pass.filter(cloud_pass);
+
     // Remove invalid points
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_pass (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::CropBox<PointT> boxFilter;
-    boxFilter.setInputCloud(cloud);
-    boxFilter.setMin(Eigen::Vector4f(x1, y1, 0.05));
-    boxFilter.setMax(Eigen::Vector4f(x2, y2, 2.0));
-    boxFilter.filter(*cloud_pass);
-    // TODO publish pointcloud
+    /* for(pcl::PointCloud<pcl::PointXYZ>::iterator it = cloud_pass.begin(); it != cloud_pass.end(); ++it) {
+      float minx = MAX_Z * sin(h_angle_x1), maxx = MAX_Z * sin(h_angle_x2);
+      float miny = MAX_Z * sin(v_angle_y1), maxy = MAX_Z * sin(v_angle_y2);
+      if(it->x >= minx && it->x <= maxx && it->y >= miny && it->y <= maxy) ROS_INFO("Point %f %f %f limit x %f %f limit y %f %f", it->x, it->y, it->z, minx, maxx, miny, maxy);
+      else ROS_INFO("-Point %f %f %f limit x %f %f limit y %f %f", it->x, it->y, it->z, minx, maxx, miny, maxy);
+    } */
+    cloud_pass.erase(std::remove_if(cloud_pass.begin(), cloud_pass.end(), [=](const pcl::PointXYZ &p) {
+      float minx = p.z * sin(h_angle_x1), maxx = p.z * sin(h_angle_x2);
+      float miny = p.z * sin(v_angle_y2), maxy = p.z * sin(v_angle_y1);
+      return !(p.x >= minx && p.x <= maxx && p.y >= miny && p.y <= maxy);
+    }), cloud_pass.end());
+
+    ROS_INFO("Pointcloud size after filter %d", (int)cloud_pass.points.size());
+    if((int)cloud_pass.points.size() == 0) continue;
+
+    // Publish pointcloud
+    pcl::PCLPointCloud2 ring_cloud;
+    pcl::toPCLPointCloud2(cloud_pass, ring_cloud);
+    ring_cloud_pub.publish(ring_cloud);
 
     // Get centroid
     Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(*cloud_pass, centroid);
+    pcl::compute3DCentroid(cloud_pass, centroid);
+
+    ROS_INFO("Ring centroid %f %f %f", centroid[0], centroid[1], centroid[2]);
+    float x = centroid[0], y = centroid[1], z = centroid[2];
     // TODO check valid centroid ???
 
     /* // Get depth
@@ -165,7 +203,6 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCl
     float dist = (float)sum_dist / (float)count;
 
     // Get pose
-    int k_f = 554;
     float elipse_x = width / 2.0 - center.x;
     float elipse_y = height / 2.0 - center.y;
 
@@ -176,10 +213,10 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCl
     float y = dist * sin(angle_to_target);
     float z = dist * sin(vertical_angle);
 
-    ROS_INFO("Point in RGB frame: dist %f, x %f, y %f, z %f", dist, x, y, z);
+    ROS_INFO("Point in RGB frame: dist %f, x %f, y %f, z %f", dist, x, y, z); */
 
     geometry_msgs::PointStamped optical;
-    optical.header.frame_id = "camera_rgb_frame";
+    optical.header.frame_id = "camera_depth_optical_frame";
     optical.header.stamp = start;
     optical.point.x = x;
     optical.point.y = y;
@@ -206,7 +243,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const pcl::PCLPointCl
       marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {
       ROS_WARN("%s",ex.what());
-    } */
+    }
   }
 }
 
@@ -217,16 +254,17 @@ int main(int argc, char **argv) {
   tfBuf.initialise();
 
   marker_pub = nh.advertise<visualization_msgs::Marker>("ring_markers", 1000);
+  ring_cloud_pub = nh.advertise<pcl::PCLPointCloud2>("ring_cloud", 1);
 
   message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
-  message_filters::Subscriber<pcl::PCLPointCloud2> depth_sub (nh, "/camera/depth/points", 1);
+  message_filters::Subscriber<sensor_msgs::PointCloud2> depth_sub (nh, "/camera/depth/points", 1);
 
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, pcl::PCLPointCloud2> sync_policy;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::PointCloud2> sync_policy;
 
   message_filters::Synchronizer<sync_policy> sync(sync_policy(10), rgb_sub, depth_sub);
   sync.registerCallback(boost::bind(&find_rings, _1, _2));
   
-  ros::Rate rate(5);
+  ros::Rate rate(2);
   while(ros::ok()) {
     ros::spinOnce();
     rate.sleep();
