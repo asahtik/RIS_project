@@ -7,7 +7,7 @@
 #include <cv_bridge/rgb_colors.h>
 #include <geometry_msgs/Pose.h>
 #include <visualization_msgs/Marker.h>
-// #include <visualization_msgs/MarkerArray.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -24,6 +24,7 @@
 #include <pcl/common/centroid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -34,16 +35,19 @@
 #include <sstream>
 #include <iterator>
 
+#include "include/clustering_2d_lib.h"
+
 #define CONTOUR_SIZE 20
 #define ELIPSE_MAX_CENTER_DISTANCE 5.0
 #define MIN_Z 0.1
 #define MAX_Z 2.0
 #define DETECTION_BORDER 2
+#define LEAF_SIZE 0.01
+#define ANGLE_CORRECTION 0.01
+#define MAX_RATIO 0.80
 
 ros::Publisher marker_pub;
 ros::Publisher ring_cloud_pub;
-
-typedef pcl::PointXYZ PointT;
 
 class tf2_buf {
   public:
@@ -54,8 +58,7 @@ class tf2_buf {
   }
 } tfBuf;
 
-
-int markers = 0;
+std::list<clustering2d::cluster_t> ring_c;
 
 std::string toString(std::vector<cv::Point> &v) {
   std::stringstream ret;
@@ -63,6 +66,27 @@ std::string toString(std::vector<cv::Point> &v) {
     ret << p.x << " " << p.y << ", ";
   }
   return ret.str();
+}
+
+void send_marr(std::list<clustering2d::cluster_t> &cs) {
+  visualization_msgs::MarkerArray marr;
+  for(clustering2d::cluster_t c : cs) {
+    geometry_msgs::Pose p;
+    c.toPose(p);
+    p.position.z = 1.0;
+    visualization_msgs::Marker m;
+    m.id = c.id;
+    m.header.frame_id = "map";
+    m.header.stamp = ros::Time::now();
+    m.lifetime = ros::Duration(10);
+    m.pose = p;
+    m.type = visualization_msgs::Marker::SPHERE;
+    m.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+    m.color.a = 1.0; m.color.r = 1.0;
+    marr.markers.push_back(m);
+  }
+  marker_pub.publish(marr);
 }
 
 void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
@@ -99,6 +123,8 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     }
   }
 
+  std::list<geometry_msgs::Pose> poses;
+
   for(std::list<std::tuple<cv::RotatedRect*, cv::RotatedRect*>>::iterator it = candidates.begin(); it != candidates.end(); ++it) {
     cv::RotatedRect *e1 = std::get<0>(*it);
     cv::RotatedRect *e2 = std::get<1>(*it);
@@ -132,119 +158,118 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     if(y2 <= 0) y2 = 0;
     if(y1 > height) y1 = height;
 
-    // ROS_INFO("Center %d %d, a %f, b %f", center.x, center.y, a, b);
-    ROS_INFO("height %f y1 %f, y2 %f", height / 2.0, y1, y2);
-
     int k_f = 554;
-    float x1_d = x1 - width / 2.0 - DETECTION_BORDER, y1_d = y1 - height / 2.0 + DETECTION_BORDER, x2_d = x2 - width / 2.0 + DETECTION_BORDER, y2_d = y2 - height / 2.0 - DETECTION_BORDER;
+    // float x1_d = x1 - width / 2.0 - DETECTION_BORDER, y1_d = y1 - height / 2.0 + DETECTION_BORDER, x2_d = x2 - width / 2.0 + DETECTION_BORDER, y2_d = y2 - height / 2.0 - DETECTION_BORDER;
+    float x1_d = x1 - width / 2.0, y1_d = y1 - height / 2.0, x2_d = x2 - width / 2.0, y2_d = y2 - height / 2.0;
     float h_angle_x1 = atan2(x1_d, k_f), h_angle_x2 = atan2(x2_d, k_f);
-    float v_angle_y1 = atan2(y1_d, k_f), v_angle_y2 = atan2(y2_d, k_f);
+    float v_angle_y1 = atan2(y1_d, k_f) - ANGLE_CORRECTION, v_angle_y2 = atan2(y2_d, k_f) - ANGLE_CORRECTION;
 
-    ROS_INFO("h angle x1 %d, h angle x2 %d, v angle y1 %d, v angle y2 %d", (int)(h_angle_x1 * (180 / M_PI)), (int)(h_angle_x2 * (180 / M_PI)), (int)(v_angle_y1 * (180 / M_PI)), (int)(v_angle_y2 * (180 / M_PI)));
+    // ROS_INFO("h angle x1 %d, h angle x2 %d, v angle y1 %d, v angle y2 %d", (int)(h_angle_x1 * (180 / M_PI)), (int)(h_angle_x2 * (180 / M_PI)), (int)(v_angle_y1 * (180 / M_PI)), (int)(v_angle_y2 * (180 / M_PI)));
 
     // Get depth
     pcl::PCLPointCloud2 pcl_pc2;
     pcl_conversions::toPCL(*depth_blob, pcl_pc2);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     // Read in the cloud data
     pcl::fromPCLPointCloud2(pcl_pc2, *cloud);
     // Create passthrough filter
-    pcl::PointCloud<pcl::PointXYZ> cloud_pass;
-    pcl::PassThrough<pcl::PointXYZ> pass;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_pass(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(cloud);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(MIN_Z, MAX_Z);
-    pass.filter(cloud_pass);
+    pass.filter(*cloud_pass);
 
-    // Remove invalid points
-    /* for(pcl::PointCloud<pcl::PointXYZ>::iterator it = cloud_pass.begin(); it != cloud_pass.end(); ++it) {
-      float minx = MAX_Z * sin(h_angle_x1), maxx = MAX_Z * sin(h_angle_x2);
-      float miny = MAX_Z * sin(v_angle_y1), maxy = MAX_Z * sin(v_angle_y2);
-      if(it->x >= minx && it->x <= maxx && it->y >= miny && it->y <= maxy) ROS_INFO("Point %f %f %f limit x %f %f limit y %f %f", it->x, it->y, it->z, minx, maxx, miny, maxy);
-      else ROS_INFO("-Point %f %f %f limit x %f %f limit y %f %f", it->x, it->y, it->z, minx, maxx, miny, maxy);
-    } */
-    cloud_pass.erase(std::remove_if(cloud_pass.begin(), cloud_pass.end(), [=](const pcl::PointXYZ &p) {
+    // Downscale
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_down(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::VoxelGrid<pcl::PointXYZRGB> scd;
+    scd.setInputCloud(cloud_pass);
+    scd.setLeafSize(LEAF_SIZE, LEAF_SIZE, LEAF_SIZE);
+    scd.filter(*cloud_down);
+
+    cloud_down->erase(std::remove_if(cloud_down->begin(), cloud_down->end(), [=](const pcl::PointXYZRGB &p) {
       float minx = p.z * sin(h_angle_x1), maxx = p.z * sin(h_angle_x2);
       float miny = p.z * sin(v_angle_y2), maxy = p.z * sin(v_angle_y1);
       return !(p.x >= minx && p.x <= maxx && p.y >= miny && p.y <= maxy);
-    }), cloud_pass.end());
+    }), cloud_down->end());
 
-    ROS_INFO("Pointcloud size after filter %d", (int)cloud_pass.points.size());
-    if((int)cloud_pass.points.size() == 0) continue;
+    // ROS_INFO("Pointcloud size after filter %d", (int)cloud_down->points.size());
+    if((int)cloud_down->points.size() == 0) continue;
 
     // Publish pointcloud
     pcl::PCLPointCloud2 ring_cloud;
-    pcl::toPCLPointCloud2(cloud_pass, ring_cloud);
+    pcl::toPCLPointCloud2(*cloud_down, ring_cloud);
     ring_cloud_pub.publish(ring_cloud);
 
     // Get centroid
     Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(cloud_pass, centroid);
+    pcl::compute3DCentroid(*cloud_down, centroid);
 
     ROS_INFO("Ring centroid %f %f %f", centroid[0], centroid[1], centroid[2]);
     float x = centroid[0], y = centroid[1], z = centroid[2];
-    // TODO check valid centroid ???
 
-    /* // Get depth
-    cv_bridge::CvImageConstPtr depth_image_msg = cv_bridge::toCvShare(depth_img, sensor_msgs::image_encodings::TYPE_16UC1);
-    cv::Mat depth_image = depth_image_msg->image;
+    // Get area of object in cm2
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ring(new pcl::PointCloud<pcl::PointXYZ>);
+    for(pcl::PointCloud<pcl::PointXYZRGB>::iterator it = cloud_down->begin(); it != cloud_down->end(); ++it) {
+      pcl::PointXYZ p; p.x = it->x; p.y = it->y; p.z = z;
+      ring->push_back(p);
+    }
+    pcl::VoxelGrid<pcl::PointXYZ> ringscd;
+    ringscd.setInputCloud(ring);
+    ringscd.setLeafSize(LEAF_SIZE, LEAF_SIZE, LEAF_SIZE);
+    ringscd.filter(*ring);
+    ROS_INFO("Pointcloud size after filter 2 %d", (int)ring->points.size());
 
-    // TODO fix
-    cv::Mat ring_img = depth_image(cv::Range(y1, y2), cv::Range(x1, x2));
-    long sum_dist = 0, sum_mean = 0; int count = 0;
-    ring_img.forEach<uchar>([&](uchar px, const int *position) {
-      sum_mean += px;
-      if(px > 0) {  
-        sum_dist += px;
-        count++;
-      }
-    });
-    // float dist = sum_dist / count;
-    float dist = (float)sum_dist / (float)count;
+    float minx = z * sin(h_angle_x1), maxx = z * sin(h_angle_x2);
+    float miny = z * sin(v_angle_y2), maxy = z * sin(v_angle_y1);
+    // ROS_INFO("Ring frame x %f %f, y %f %f", minx, maxx, miny, maxy);
+    // float ratio = (float)cloud_down->points.size() / (abs(maxx - minx) * abs(maxy - miny) * 10000);
+    float ratio = (float)ring->points.size() / (abs(maxx - minx) * abs(maxy - miny) * 10000);
+    ROS_INFO("Frame size %f cm2, ratio %f", abs(maxx - minx) * abs(maxy - miny) * 10000, ratio);
 
-    // Get pose
-    float elipse_x = width / 2.0 - center.x;
-    float elipse_y = height / 2.0 - center.y;
-
-    float angle_to_target = atan2(elipse_x, k_f);
-    float vertical_angle = atan2(elipse_y, k_f);
-
-    float x = dist * cos(angle_to_target);
-    float y = dist * sin(angle_to_target);
-    float z = dist * sin(vertical_angle);
-
-    ROS_INFO("Point in RGB frame: dist %f, x %f, y %f, z %f", dist, x, y, z); */
+    if(ratio > MAX_RATIO) {
+      continue;
+    }
 
     geometry_msgs::PointStamped optical;
     optical.header.frame_id = "camera_depth_optical_frame";
-    optical.header.stamp = start;
+    optical.header.stamp = depth_blob->header.stamp;
     optical.point.x = x;
     optical.point.y = y;
     optical.point.z = z;
     geometry_msgs::PointStamped map;
     try {
+      // geometry_msgs::TransformStamped transform = tfBuf.buffer.lookupTransform("camera_depth_optical_frame", "map", depth_blob->header.stamp);
+      // tf2::doTransform(optical, map, transform);
       tfBuf.buffer.transform<geometry_msgs::PointStamped>(optical, map, "map", ros::Duration(0.1));
       geometry_msgs::Pose pose;
       pose.position.x = map.point.x;
       pose.position.y = map.point.y;
       pose.position.z = map.point.z;
+      pose.orientation.z = 0.0;
+      pose.orientation.w = 1.0;
 
-      visualization_msgs::Marker m;
-      m.id = ++markers;
-      m.header.frame_id = "map";
-      m.header.stamp = ros::Time::now();
-      m.lifetime = ros::Duration(10);
-      m.pose = pose;
-      m.type = visualization_msgs::Marker::SPHERE;
-      m.action = visualization_msgs::Marker::ADD;
-      m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
-      m.color.a = 1.0; m.color.r = 1.0;
+      poses.push_back(pose);
 
-      marker_pub.publish(m);
+      // visualization_msgs::Marker m;
+      // m.id = ++markers;
+      // m.header.frame_id = "map";
+      // m.header.stamp = ros::Time::now();
+      // m.lifetime = ros::Duration(10);
+      // m.pose = pose;
+      // m.type = visualization_msgs::Marker::SPHERE;
+      // m.action = visualization_msgs::Marker::ADD;
+      // m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+      // m.color.a = 1.0; m.color.r = 1.0;
+
+      // marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {
       ROS_WARN("%s",ex.what());
     }
   }
+  int n_markers = clustering2d::cluster(ring_c, poses);
+  ROS_INFO("No markers %d", n_markers);
+  send_marr(ring_c);
 }
 
 int main(int argc, char **argv) {
@@ -253,7 +278,7 @@ int main(int argc, char **argv) {
 
   tfBuf.initialise();
 
-  marker_pub = nh.advertise<visualization_msgs::Marker>("ring_markers", 1000);
+  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("ring_markers", 1000);
   ring_cloud_pub = nh.advertise<pcl::PCLPointCloud2>("ring_cloud", 1);
 
   message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);

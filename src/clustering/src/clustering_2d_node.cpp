@@ -18,6 +18,7 @@ struct cluster_t {
   public:
   double x, y, cos, sin;
   int detections, id;
+  int status = 0;
 
   cluster_t(int id) {
     this->id = id;
@@ -25,6 +26,7 @@ struct cluster_t {
   cluster_t(clustering::Cluster2D &c) {
     this->x = c.x;
     this->y = c.y;
+    this->status = c.status;
     this->detections = c.detections;
     this->id = c.id;
     this->sin = c.sin;
@@ -55,6 +57,7 @@ struct cluster_t {
     this->detections += b.detections;
 
     this->id = this->id < b.id ? this->id : b.id;
+    this->status = this->id < b.id ? this->status : b.status;
     this->x = (this->x * prev_detections + b.x) / this->detections;
     this->y = (this->y * prev_detections + b.y) / this->detections;
     this->sin = (this->sin * prev_detections + b.sin) / this->detections;
@@ -85,6 +88,7 @@ struct cluster_t {
     c.sin = this->sin;
     c.detections = this->detections;
     c.id = this->id;
+    c.status = this->status;
   }
 };
 
@@ -117,28 +121,30 @@ bool cluster(clustering::Clustering2DService::Request &req, clustering::Clusteri
     ret.push_back(c);
   }
 
+  int n = ret.size();
   while(ros::ok()) {
-    int n = ret.size();
     double min = -1.0;
-    std::list<cluster_t>::iterator c_i, c_j;
-    for(c_i = ret.begin(); c_i != ret.end(); ++c_i) 
-      for(c_j = ret.begin(); c_j != ret.end(); ++c_j) {
+    std::list<cluster_t>::iterator min_i, min_j;
+    for(std::list<cluster_t>::iterator c_i = ret.begin(); c_i != ret.end(); ++c_i) 
+      for(std::list<cluster_t>::iterator c_j = ret.begin(); c_j != ret.end(); ++c_j) {
         if(&*c_i != &*c_j && angle_diff(c_i->get_orientation(), c_j->get_orientation()) < max_angle) { // two nearby clusters facing in different directions are different
           double dist = cluster_dist(*c_i, *c_j);
           if(dist < min || min < 0) {
+            min_i = c_i; min_j = c_j;
             min = dist;
           }
         }
         if(&*c_i != &*c_j && cluster_dist(*c_i, *c_j) < max_dist && angle_diff(c_i->get_orientation(), c_j->get_orientation()) >= max_angle) ROS_INFO("ERROR Diff ang %f, %f, diff %f", c_i->get_orientation(), c_j->get_orientation(), angle_diff(c_i->get_orientation(), c_j->get_orientation()));
       }
 
-    if(min > max_dist || ret.size() < 2) {
+    if(min > max_dist) {
       break;
     }
     else {
       if(min < 0) break;
-      c_i->join(*c_j);
-      ret.erase(c_j);
+      min_i->join(*min_j);
+      ret.erase(min_j);
+      if(--n < 2) break;
     }
   }
 
