@@ -205,6 +205,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     float axis_v_size = sqrt(pow(axis_x, 2) + pow(axis_y, 2) + pow(axis_z, 2));
     axis_x /= axis_v_size; axis_y /= axis_v_size; axis_z /= axis_v_size;
     // ROS_INFO("Axis x: %f, y: %f, z: %f", axis_x, axis_y, axis_z);
+    // Check rotation and size of pointcloud
     if(abs(axis_x) > CYLINDER_MAX_AXIS_ANGLE || (float)nci_points / (float)nr_points < CYLINDER_POINTS_RATIO) {
       // std::cout << "Cyl coef" << *coefficients_cylinder << std::endl;
       ROS_INFO("Detected cylinder is not valid");
