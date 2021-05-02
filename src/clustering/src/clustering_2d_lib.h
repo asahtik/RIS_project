@@ -1,5 +1,5 @@
 #include <geometry_msgs/Pose.h>
-
+#include <ros/ros.h>
 #include <math.h>
 #include <iostream>
 
@@ -106,6 +106,8 @@ namespace clustering2d {
       if(i.id > max_id) max_id = i.id;
     }
     for(geometry_msgs::Pose i : poses) {
+      if(std::isinf(i.position.x) || std::isinf(i.position.y) || std::isinf(i.position.z) ||
+          std::isinf(i.orientation.x) || std::isinf(i.orientation.y) || std::isinf(i.orientation.z) || std::isinf(i.orientation.w)) continue;
       cluster_t c(++max_id, i);
       clusters.push_back(c);
     }
@@ -136,6 +138,6 @@ namespace clustering2d {
       }
     }
 
-    return clusters.size();
+    return n;
   }
 }

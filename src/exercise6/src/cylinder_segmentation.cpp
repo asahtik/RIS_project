@@ -181,13 +181,13 @@ cloud_cb (const pcl::PCLPointCloud2ConstPtr& cloud_blob)
           marker.type = visualization_msgs::Marker::CYLINDER;
           marker.action = visualization_msgs::Marker::ADD;
 
-          marker.pose.position.x = point_map.point.x;
-          marker.pose.position.y = point_map.point.y;
-          marker.pose.position.z = point_map.point.z;
-          marker.pose.orientation.x = 0.0;
+        marker.pose.position.x = point_map.point.x;
+        marker.pose.position.y = point_map.point.y;
+        marker.pose.position.z = point_map.point.z;
+        marker.pose.orientation.x = 0.0;
 	      marker.pose.orientation.y = 0.0;
-          marker.pose.orientation.z = 0.0;
-          marker.pose.orientation.w = 1.0;
+        marker.pose.orientation.z = 0.0;
+        marker.pose.orientation.w = 1.0;
 
           marker.scale.x = 0.1;
 	      marker.scale.y = 0.1;

@@ -6,7 +6,6 @@
 #include <cv_bridge/cv_bridge.h>
 #include <cv_bridge/rgb_colors.h>
 #include <geometry_msgs/Pose.h>
-#include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/transform_datatypes.h>
@@ -34,6 +33,7 @@
 #include <math.h>
 #include <sstream>
 #include <iterator>
+// #include "tensorflow/c/c_api.h"
 
 #include "include/clustering_2d_lib.h"
 
@@ -45,6 +45,8 @@
 #define LEAF_SIZE 0.01
 #define ANGLE_CORRECTION 0.01
 #define MAX_RATIO 0.80
+#define MIN_DETECTIONS 2
+#define RATE 2.0
 
 ros::Publisher marker_pub;
 ros::Publisher ring_cloud_pub;
@@ -71,6 +73,7 @@ std::string toString(std::vector<cv::Point> &v) {
 void send_marr(std::list<clustering2d::cluster_t> &cs) {
   visualization_msgs::MarkerArray marr;
   for(clustering2d::cluster_t c : cs) {
+    if(c.detections < MIN_DETECTIONS) continue;
     geometry_msgs::Pose p;
     c.toPose(p);
     p.position.z = 1.0;
@@ -246,7 +249,6 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
       pose.position.x = map.point.x;
       pose.position.y = map.point.y;
       pose.position.z = map.point.z;
-      pose.orientation.z = 0.0;
       pose.orientation.w = 1.0;
 
       poses.push_back(pose);
@@ -267,9 +269,9 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
       ROS_WARN("%s",ex.what());
     }
   }
-  int n_markers = clustering2d::cluster(ring_c, poses);
-  ROS_INFO("No markers %d", n_markers);
-  send_marr(ring_c);
+  int no_markers = clustering2d::cluster(ring_c, poses);
+  ROS_INFO("No markers %d", no_markers);
+  if(no_markers > 0) send_marr(ring_c);
 }
 
 int main(int argc, char **argv) {
@@ -278,7 +280,7 @@ int main(int argc, char **argv) {
 
   tfBuf.initialise();
 
-  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("ring_markers", 1000);
+  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/ring_markers", 1000);
   ring_cloud_pub = nh.advertise<pcl::PCLPointCloud2>("ring_cloud", 1);
 
   message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
@@ -289,7 +291,7 @@ int main(int argc, char **argv) {
   message_filters::Synchronizer<sync_policy> sync(sync_policy(10), rgb_sub, depth_sub);
   sync.registerCallback(boost::bind(&find_rings, _1, _2));
   
-  ros::Rate rate(2);
+  ros::Rate rate(RATE);
   while(ros::ok()) {
     ros::spinOnce();
     rate.sleep();

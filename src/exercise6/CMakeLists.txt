@@ -77,6 +77,6 @@ add_executable (cylinder_segmentation src/cylinder_segmentation.cpp)
 add_executable (minicut_segmentation src/minicut_segmentation.cpp)
 add_executable (region_growing src/region_growing.cpp)
 add_executable (centroid_estimation src/centroid_estimation.cpp)
-# add_executable(find_stuff src/find_stuff_node.cpp)
+add_executable(find_cylinders src/find_cylinders_node.cpp)
 add_executable(find_rings src/find_rings_node.cpp)
 

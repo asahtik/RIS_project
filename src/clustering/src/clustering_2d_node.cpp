@@ -113,10 +113,15 @@ bool cluster(clustering::Clustering2DService::Request &req, clustering::Clusteri
   int max_id = -1;
   // load data to single vector
   for(clustering::Cluster2D i : req.clusters) {
+    if(std::isinf(i.x) || std::isinf(i.y) ||
+        std::isinf(i.sin) || std::isinf(i.cos)) continue;
     if(i.id > max_id) max_id = i.id;
-    ret.push_back(i);
+    cluster_t c(i);
+    ret.push_back(c);
   }
   for(geometry_msgs::Pose i : req.poses) {
+    if(std::isinf(i.position.x) || std::isinf(i.position.y) || std::isinf(i.position.z) ||
+        std::isinf(i.orientation.x) || std::isinf(i.orientation.y) || std::isinf(i.orientation.z) || std::isinf(i.orientation.w)) continue;
     cluster_t c(++max_id, i);
     ret.push_back(c);
   }
