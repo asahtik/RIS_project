@@ -10,6 +10,7 @@
 #include <pcl/ModelCoefficients.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
+#include <pcl/point_types_conversion.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/sample_consensus/method_types.h>
@@ -41,6 +42,9 @@
 #define CYLINDER_POINTS_RATIO 0.08
 #define RATE 2.0
 #define MIN_DETECTIONS 2
+#define NO_COLORS 16
+#define MIN_SATURATION 0.25
+#define MIN_VALUE 0.25 
 
 tf2_ros::Buffer tfBuffer;
 tf2_ros::TransformListener* tfListener;
@@ -212,6 +216,14 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
       // std::cout << "Cyl coef" << *coefficients_cylinder << std::endl;
       ROS_INFO("Detected cylinder is not valid");
       return;
+    }
+
+    // Calculate color histogram
+    int clr_hist[NO_COLORS];
+    for(pcl::PointCloud<pcl::PointXYZRGB>::iterator it = cloud_cylinder->begin(); it != cloud_cylinder->end(); ++it) {
+      pcl::PointXYZHSV pc;
+      pcl::PointXYZRGBtoXYZHSV(*it, pc);
+      if(pc.s >= MIN_SATURATION && pc.v >= MIN_VALUE) clr_hist[(int)round(pc.h * (float)(NO_COLORS - 1))]++;
     }
 
     Eigen::Vector4f centroid;   

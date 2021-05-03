@@ -20,6 +20,7 @@
 #include <pcl/ModelCoefficients.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
+#include <pcl/point_types_conversion.h>
 #include <pcl/common/centroid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/passthrough.h>
@@ -47,6 +48,9 @@
 #define MAX_RATIO 0.80
 #define MIN_DETECTIONS 2
 #define RATE 2.0
+#define NO_COLORS 16
+#define MIN_SATURATION 0.25
+#define MIN_VALUE 0.25 
 
 ros::Publisher marker_pub;
 ros::Publisher ring_cloud_pub;
@@ -59,6 +63,8 @@ class tf2_buf {
     tfListener = new tf2_ros::TransformListener(buffer);
   }
 } tfBuf;
+
+enum {RED, GREEN, BLUE, DETECTED = -1};
 
 std::list<clustering2d::cluster_t> ring_c;
 
@@ -73,7 +79,7 @@ std::string toString(std::vector<cv::Point> &v) {
 /**
  * @brief Publishes MarkerArray via marker_pub composed of cluster poses
  * @param cs std::list of clusters
- */
+*/
 void send_marr(std::list<clustering2d::cluster_t> &cs) {
   visualization_msgs::MarkerArray marr;
   for(clustering2d::cluster_t c : cs) {
@@ -227,11 +233,18 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     ROS_INFO("Ring centroid %f %f %f", centroid[0], centroid[1], centroid[2]);
     float x = centroid[0], y = centroid[1], z = centroid[2];
 
-    // Get area of object in cm2 (project to same plane and downscale)
+    // Get area of object in cm2 (project to same plane and downscale) and build a color histogram
+    int clr_hist[NO_COLORS];
     pcl::PointCloud<pcl::PointXYZ>::Ptr ring(new pcl::PointCloud<pcl::PointXYZ>);
     for(pcl::PointCloud<pcl::PointXYZRGB>::iterator it = cloud_down->begin(); it != cloud_down->end(); ++it) {
+      // Project
       pcl::PointXYZ p; p.x = it->x; p.y = it->y; p.z = z;
       ring->push_back(p);
+
+      // Color histogram
+      pcl::PointXYZHSV pc;
+      pcl::PointXYZRGBtoXYZHSV(*it, pc);
+      if(pc.s >= MIN_SATURATION && pc.v >= MIN_VALUE) clr_hist[(int)round(pc.h * (float)(NO_COLORS - 1))]++;
     }
     pcl::VoxelGrid<pcl::PointXYZ> ringscd;
     ringscd.setInputCloud(ring);
