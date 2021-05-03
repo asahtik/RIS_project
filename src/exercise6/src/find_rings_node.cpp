@@ -70,6 +70,10 @@ std::string toString(std::vector<cv::Point> &v) {
   return ret.str();
 }
 
+/**
+ * @brief Publishes MarkerArray via marker_pub composed of cluster poses
+ * @param cs std::list of clusters
+ */
 void send_marr(std::list<clustering2d::cluster_t> &cs) {
   visualization_msgs::MarkerArray marr;
   for(clustering2d::cluster_t c : cs) {
@@ -92,22 +96,27 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
   marker_pub.publish(marr);
 }
 
+// Subscriber callback
 void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
-  ros::Time start(0);
-  
+  // Transform image to CV format and get dimensions
   cv_bridge::CvImageConstPtr cv_rgb = cv_bridge::toCvShare(rgb_img, sensor_msgs::image_encodings::BGR8);
   int width = cv_rgb->image.cols, height = cv_rgb->image.rows;
   
+  // Convert color to grayscale
   cv::Mat cv_gray;
   cv::cvtColor(cv_rgb->image, cv_gray, cv::COLOR_BGR2GRAY);
 
   cv::equalizeHist(cv_gray, cv_gray);
 
+  // Use Otsu's thresholding to get foreground objects
   cv::Mat cv_bw;
   cv::threshold(cv_gray, cv_bw, 0, 255, cv::ThresholdTypes::THRESH_BINARY | cv::ThresholdTypes::THRESH_OTSU);
+
+  // Find contours
   std::vector<std::vector<cv::Point>> contours;
   cv::findContours(cv_bw, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
 
+  // Fit ellipses to contours
   std::list<cv::RotatedRect> elps;
   for(std::vector<cv::Point> c : contours) {
     toString(c);
@@ -117,6 +126,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     }
   }
 
+  // Find concentric ellipses - rings
   std::list<std::tuple<cv::RotatedRect*, cv::RotatedRect*>> candidates;
   for(std::list<cv::RotatedRect>::iterator n = elps.begin(); n != elps.end(); ++n) {
     for(std::list<cv::RotatedRect>::iterator m = std::next(n, 1); m != elps.end(); ++m) {
@@ -137,6 +147,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     e1->points(e1_corners);
     e2->points(e2_corners);
 
+    // Calculate ellipse parameters
     float e1_a = sqrt(pow(e1_corners[1].x - e1_corners[2].x, 2) + pow(e1_corners[1].y - e1_corners[2].y, 2)) / 2.0;
     float e1_b = sqrt(pow(e1_corners[0].x - e1_corners[1].x, 2) + pow(e1_corners[0].y - e1_corners[1].y, 2)) / 2.0;
 
@@ -146,6 +157,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     float e1_size = (e1_a + e1_b) / 2.0;
     float e2_size = (e2_a + e2_b) / 2.0;
 
+    // Find out which ellipse is on the inside and which on the outside of the ring
     cv::RotatedRect *outer = (e1_size > e2_size) ? e1 : e2;
     cv::RotatedRect *inner = (e1_size > e2_size) ? e2 : e1;
     float a = (e1_a > e2_a) ? e1_a : e2_a;
@@ -153,6 +165,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
 
     cv::Point center(inner->center.x, inner->center.y);
 
+    // Get ring bounding box
     float x1 = center.x - a, x2 = center.x + a;
     if(x1 <= 0) x1 = 0;
     if(x2 > width) x2 = width;
@@ -161,6 +174,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     if(y2 <= 0) y2 = 0;
     if(y1 > height) y1 = height;
 
+    // Get angles from sensor to bounding box corners
     int k_f = 554;
     // float x1_d = x1 - width / 2.0 - DETECTION_BORDER, y1_d = y1 - height / 2.0 + DETECTION_BORDER, x2_d = x2 - width / 2.0 + DETECTION_BORDER, y2_d = y2 - height / 2.0 - DETECTION_BORDER;
     float x1_d = x1 - width / 2.0, y1_d = y1 - height / 2.0, x2_d = x2 - width / 2.0, y2_d = y2 - height / 2.0;
@@ -190,6 +204,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     scd.setLeafSize(LEAF_SIZE, LEAF_SIZE, LEAF_SIZE);
     scd.filter(*cloud_down);
 
+    // Erase invalid points (points that do not project to bounding box)
     cloud_down->erase(std::remove_if(cloud_down->begin(), cloud_down->end(), [=](const pcl::PointXYZRGB &p) {
       float minx = p.z * sin(h_angle_x1), maxx = p.z * sin(h_angle_x2);
       float miny = p.z * sin(v_angle_y2), maxy = p.z * sin(v_angle_y1);
@@ -204,6 +219,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     pcl::toPCLPointCloud2(*cloud_down, ring_cloud);
     ring_cloud_pub.publish(ring_cloud);
 
+    // Possible improvement: Remove points behind ring
     // Get centroid
     Eigen::Vector4f centroid;
     pcl::compute3DCentroid(*cloud_down, centroid);
@@ -211,7 +227,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     ROS_INFO("Ring centroid %f %f %f", centroid[0], centroid[1], centroid[2]);
     float x = centroid[0], y = centroid[1], z = centroid[2];
 
-    // Get area of object in cm2
+    // Get area of object in cm2 (project to same plane and downscale)
     pcl::PointCloud<pcl::PointXYZ>::Ptr ring(new pcl::PointCloud<pcl::PointXYZ>);
     for(pcl::PointCloud<pcl::PointXYZRGB>::iterator it = cloud_down->begin(); it != cloud_down->end(); ++it) {
       pcl::PointXYZ p; p.x = it->x; p.y = it->y; p.z = z;
@@ -223,6 +239,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     ringscd.filter(*ring);
     ROS_INFO("Pointcloud size after filter 2 %d", (int)ring->points.size());
 
+    // Get area of bounding box at distance of ring
     float minx = z * sin(h_angle_x1), maxx = z * sin(h_angle_x2);
     float miny = z * sin(v_angle_y2), maxy = z * sin(v_angle_y1);
     // ROS_INFO("Ring frame x %f %f, y %f %f", minx, maxx, miny, maxy);
@@ -230,6 +247,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     float ratio = (float)ring->points.size() / (abs(maxx - minx) * abs(maxy - miny) * 10000);
     ROS_INFO("Frame size %f cm2, ratio %f", abs(maxx - minx) * abs(maxy - miny) * 10000, ratio);
 
+    // If true it's not a 3d ring
     if(ratio > MAX_RATIO) {
       continue;
     }

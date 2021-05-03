@@ -5,6 +5,7 @@
 
 namespace clustering2d {
   double max_dist = 0.5, max_angle = 0.7854;
+  bool ignore_angle = false;
 
   /**
    * \brief sets value (distance) to be used to determine whether two clusters are to be joined
@@ -118,7 +119,7 @@ namespace clustering2d {
       std::list<cluster_t>::iterator min_i, min_j;
       for(std::list<cluster_t>::iterator c_i = clusters.begin(); c_i != clusters.end(); ++c_i) 
         for(std::list<cluster_t>::iterator c_j = clusters.begin(); c_j != clusters.end(); ++c_j) {
-          if(&*c_i != &*c_j && angle_diff(c_i->get_orientation(), c_j->get_orientation()) < max_angle) { // two nearby clusters facing in different directions are different
+          if(&*c_i != &*c_j && (ignore_angle || angle_diff(c_i->get_orientation(), c_j->get_orientation()) < max_angle)) { // two nearby clusters facing in different directions are different
             double dist = cluster_dist(*c_i, *c_j);
             if(dist < min || min < 0) {
               min_i = c_i; min_j = c_j;

@@ -51,6 +51,10 @@ ros::Publisher marker_pub;
 
 std::list<clustering2d::cluster_t> cylinder_c;
 
+/**
+ * @brief Publishes MarkerArray via marker_pub composed of cluster poses
+ * @param cs std::list of clusters
+*/
 void send_marr(std::list<clustering2d::cluster_t> &cs) {
   visualization_msgs::MarkerArray marr;
   for(clustering2d::cluster_t c : cs) {
@@ -75,6 +79,7 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
   marker_pub.publish(marr);
 }
 
+// Subscriber callback
 void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
 
   pcl::PCLPointCloud2 cloud_blob;
@@ -86,7 +91,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   // Get min and max point
   pcl::PointXYZRGB min_pt, max_pt;
   pcl::getMinMax3D(*cloud, min_pt, max_pt);
-  // Build a passthrough filter to remove spurious NaNs
+  // Build a passthrough filter to remove spurious NaNs and irrelevant y values
   pcl::CropBox<pcl::PointXYZRGB> pass;
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_pass (new pcl::PointCloud<pcl::PointXYZRGB>);
   pass.setInputCloud(cloud);
@@ -94,11 +99,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   pass.setMax(Eigen::Vector4f(max_pt.x, max_pt.y, MAX_Z, 1.0));
   pass.filter(*cloud_pass);
 
-  pcl::PCLPointCloud2 outcloud_plane;
-  pcl::toPCLPointCloud2 (*cloud_pass, outcloud_plane);
-  pubPlan.publish (outcloud_plane);
-
-  // First remove floor and walls
+  /* Remove floor and walls */
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
 
   // Create the filtering object: downsample the dataset using a leaf size of 1cm
@@ -132,6 +133,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     seg.setIndices(remaining);
     seg.segment(*inliers, *coefficients);
     int n_inliers = inliers->indices.size();
+    // If removed object would be small don't remove
     if(n_inliers < REMOVED_POINTS_PERCENTAGE * nr_points) break;
     // Extract the inliers
     std::vector<int>::iterator it = remaining->begin();
@@ -161,7 +163,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   pubPlan.publish (outcloud_plane); */
 
 
-  // Then find cylinders
+  /* Find cylinders */
   pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>());
   pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
   pcl::ModelCoefficients::Ptr coefficients_cylinder(new pcl::ModelCoefficients);
