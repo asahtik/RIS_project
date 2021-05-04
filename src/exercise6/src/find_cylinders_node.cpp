@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <ros/ros.h>
 
 #include <visualization_msgs/MarkerArray.h>
@@ -24,6 +25,7 @@
 #include <Eigen/Core>
 
 #include "include/clustering_2d_lib.h"
+#include "include/get_color.h"
 
 #define MIN_Z 0.1
 #define MAX_Z 1.5
@@ -40,11 +42,12 @@
 #define CYLINDER_MAX_RADIUS 0.15f
 #define CYLINDER_MAX_AXIS_ANGLE 0.02
 #define CYLINDER_POINTS_RATIO 0.08
+#define MIN_Y -0.1
 #define RATE 2.0
-#define MIN_DETECTIONS 2
-#define NO_COLORS 16
-#define MIN_SATURATION 0.25
-#define MIN_VALUE 0.25 
+#define MIN_DETECTIONS 1
+#define NO_COLORS 16 // do not change
+#define MIN_SATURATION 0.01
+#define MIN_VALUE 0.01
 
 tf2_ros::Buffer tfBuffer;
 tf2_ros::TransformListener* tfListener;
@@ -52,8 +55,16 @@ tf2_ros::TransformListener* tfListener;
 ros::Publisher pubPlan;
 ros::Publisher pubCyl;
 ros::Publisher marker_pub;
+ros::Publisher cylinder_msg_pub;
 
 std::list<clustering2d::cluster_t> cylinder_c;
+
+std::string toString(double* arr, int size) {
+  std::stringstream ss;
+  for(int i = 0; i < size; i++)
+    ss << arr[i] << " ";
+  return ss.str();
+}
 
 /**
  * @brief Publishes MarkerArray via marker_pub composed of cluster poses
@@ -66,19 +77,19 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
     geometry_msgs::Pose p;
     c.toPose(p);
     p.position.z = 0.1;
-    p.orientation.w = 1.0;
-    ROS_WARN("Pose %f %f %f", p.position.x, p.position.y, p.position.z);
-    visualization_msgs::Marker m;
-    m.id = c.id;
-    m.header.frame_id = "map";
-    m.header.stamp = ros::Time::now();
-    m.lifetime = ros::Duration(10);
-    m.pose = p;
-    m.type = visualization_msgs::Marker::CYLINDER;
-    m.action = visualization_msgs::Marker::ADD;
-    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 2 * p.position.z;
-    m.color.a = 1.0; m.color.g = 1.0;
-    marr.markers.push_back(m);
+    visualization_msgs::Marker m, m_text;
+    m.ns = "sphere"; m_text.ns = "text";
+    m.id = c.id; m_text.id = c.id;
+    m.header.frame_id = "map"; m_text.header.frame_id = "map";
+    m.header.stamp = ros::Time::now(); m_text.header.stamp = ros::Time::now();
+    m.lifetime = ros::Duration(10); m_text.lifetime = ros::Duration(10);
+    m.pose = p; m_text.pose = p; m_text.pose.position.z = 0.5;
+    m.type = visualization_msgs::Marker::CYLINDER; m_text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+    m.action = visualization_msgs::Marker::ADD; m_text.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 2 * p.position.z; m_text.scale.x = 0.3; m_text.scale.y = 0.1; m_text.scale.z = 0.1;
+    m.color.a = 1.0; m.color.g = 1.0; m_text.color.a = 1.0;
+    m_text.text = colorFromHSV::enumToString(c.status);
+    marr.markers.push_back(m); marr.markers.push_back(m_text);
   }
   marker_pub.publish(marr);
 }
@@ -99,7 +110,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   pcl::CropBox<pcl::PointXYZRGB> pass;
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_pass (new pcl::PointCloud<pcl::PointXYZRGB>);
   pass.setInputCloud(cloud);
-  pass.setMin(Eigen::Vector4f(min_pt.x, 0.0, MIN_Z, 1.0));
+  pass.setMin(Eigen::Vector4f(min_pt.x, MIN_Y, MIN_Z, 1.0));
   pass.setMax(Eigen::Vector4f(max_pt.x, max_pt.y, MAX_Z, 1.0));
   pass.filter(*cloud_pass);
 
@@ -150,7 +161,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     }
     i++;
   }
-  std::cout << "Found " << i << " planes." << std::endl;
+  // std::cout << "Found " << i << " planes." << std::endl;
 
   if(remaining->size() == 0) return;
 
@@ -162,9 +173,9 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   extract.setNegative(false);
   extract.filter(*cloud_outliers);
 
-  /* pcl::PCLPointCloud2 outcloud_plane;
+  pcl::PCLPointCloud2 outcloud_plane;
   pcl::toPCLPointCloud2 (*cloud_outliers, outcloud_plane);
-  pubPlan.publish (outcloud_plane); */
+  pubPlan.publish (outcloud_plane);
 
 
   /* Find cylinders */
@@ -203,9 +214,9 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cylinder(new pcl::PointCloud<pcl::PointXYZRGB>());
   extract.filter(*cloud_cylinder);
 
-  if (cloud_cylinder->points.empty ()) 
-    std::cerr << "Can't find the cylindrical component." << std::endl;
-  else {
+  if (cloud_cylinder->points.empty ()) {
+    // std::cerr << "Can't find the cylindrical component." << std::endl;
+  } else {
     // coef center x y z, axis x y z, radius
     float axis_x = coefficients_cylinder->values[3], axis_y = coefficients_cylinder->values[4], axis_z = coefficients_cylinder->values[5];
     float axis_v_size = sqrt(pow(axis_x, 2) + pow(axis_y, 2) + pow(axis_z, 2));
@@ -214,21 +225,34 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     // Check rotation and size of pointcloud
     if(abs(axis_x) > CYLINDER_MAX_AXIS_ANGLE || (float)nci_points / (float)nr_points < CYLINDER_POINTS_RATIO) {
       // std::cout << "Cyl coef" << *coefficients_cylinder << std::endl;
-      ROS_INFO("Detected cylinder is not valid");
+      // ROS_INFO("Detected cylinder is not valid");
       return;
     }
 
     // Calculate color histogram
-    int clr_hist[NO_COLORS];
+    double clr_hist[NO_COLORS];
+    int no_clrs = 0;
+    float avg_hue = 0.0;
+    for(int i = 0; i < NO_COLORS; i++) clr_hist[i] = 0.0;
     for(pcl::PointCloud<pcl::PointXYZRGB>::iterator it = cloud_cylinder->begin(); it != cloud_cylinder->end(); ++it) {
       pcl::PointXYZHSV pc;
       pcl::PointXYZRGBtoXYZHSV(*it, pc);
-      if(pc.s >= MIN_SATURATION && pc.v >= MIN_VALUE) clr_hist[(int)round(pc.h * (float)(NO_COLORS - 1))]++;
+      if(pc.s >= MIN_SATURATION && pc.v >= MIN_VALUE) {
+        // std::cerr << (int)floor((pc.h / 360.0) * (float)(NO_COLORS)) << std::endl;
+        if(no_clrs == 0) avg_hue = pc.h;
+        else avg_hue += pc.h;
+        no_clrs++;
+        clr_hist[(int)floor((pc.h / 360.0) * (float)(NO_COLORS))]++;
+      } //else std::cerr << "Sat, Val: " << pc.s << ", " << pc.v << std::endl;
     }
+    if(no_clrs == 0) return;
+    for(int i = 0; i < NO_COLORS; i++) clr_hist[i] /= (double)no_clrs;
+    avg_hue /= no_clrs;
+    // std::cout << toString(clr_hist, NO_COLORS) << std::endl;
 
     Eigen::Vector4f centroid;   
     pcl::compute3DCentroid (*cloud_cylinder, centroid);
-    std::cout << "centroid of the cylindrical component: " << centroid[0] << " " <<  centroid[1] << " " <<   centroid[2] << " " << std::endl;
+    // std::cout << "centroid of the cylindrical component: " << centroid[0] << " " <<  centroid[1] << " " <<   centroid[2] << " " << std::endl;
 
 	  //Create a point in the "camera_rgb_optical_frame"
     geometry_msgs::PointStamped point_camera;
@@ -236,37 +260,43 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     geometry_msgs::TransformStamped tss;
           
     point_camera.header.frame_id = "camera_depth_optical_frame";
-    point_camera.header.stamp = ros::Time::now();
+    point_camera.header.stamp = depth_blob->header.stamp;
 
 	  point_map.header.frame_id = "map";
-    point_map.header.stamp = ros::Time::now();
+    point_map.header.stamp = depth_blob->header.stamp;
 
     point_camera.point.x = centroid[0];
     point_camera.point.y = centroid[1];
     point_camera.point.z = centroid[2];
 
 	  try {
-      tss = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_blob->header.stamp);
-      //tf2_buffer.transform(point_camera, point_map, "map", ros::Duration(2));
+      // tss = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_blob->header.stamp);
+      // tf2::doTransform(point_camera, point_map, tss);
+      tfBuffer.transform<geometry_msgs::PointStamped>(point_camera, point_map, "map", ros::Duration(0.1));
+      // std::cerr << "point_camera: " << point_camera.point.x << " " <<  point_camera.point.y << " " <<  point_camera.point.z << std::endl;
+      // std::cerr << "point_map: " << point_map.point.x << " " <<  point_map.point.y << " " <<  point_map.point.z << std::endl;
+      geometry_msgs::Pose p;
+      p.position.x = point_map.point.x;
+      p.position.y = point_map.point.y;
+      p.position.z = point_map.point.z;
+      p.orientation.w = 1.0;
+
+      clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(p, colorFromHSV::get_from_hue(avg_hue));
+      if(cluster != NULL) {
+        cylinder_c.push_front(*cluster);
+        int no_markers = clustering2d::cluster(cylinder_c);
+        // ROS_INFO("No markers %d", no_markers);
+        if(no_markers > 0) {
+          clustering::Cluster2DArray carr;
+          clustering2d::to_cluster_array_msg(cylinder_c, carr);
+          cylinder_msg_pub.publish(carr);
+          send_marr(cylinder_c);
+        }
+      }
+      // pubm.publish (marker);
     } catch (tf2::TransformException &ex) {
-      ROS_WARN("Transform warning: %s\n", ex.what());
+      // ROS_WARN("Transform warning: %s\n", ex.what());
     }
-
-    tf2::doTransform(point_camera, point_map, tss);
-
-    // std::cerr << "point_camera: " << point_camera.point.x << " " <<  point_camera.point.y << " " <<  point_camera.point.z << std::endl;
-    std::cerr << "point_map: " << point_map.point.x << " " <<  point_map.point.y << " " <<  point_map.point.z << std::endl;
-    geometry_msgs::Pose p;
-    p.position.x = point_map.point.x;
-    p.position.y = point_map.point.y;
-    p.position.z = point_map.point.z;
-    p.orientation.w = 1.0;
-
-    std::list<geometry_msgs::Pose> pose = {p};
-    int no_markers = clustering2d::cluster(cylinder_c, pose);
-    ROS_INFO("No markers %d", no_markers);
-    if(no_markers > 0) send_marr(cylinder_c);
-    // pubm.publish (marker);
 
     pcl::PCLPointCloud2 outcloud_cylinder;
     pcl::toPCLPointCloud2 (*cloud_cylinder, outcloud_cylinder);
@@ -289,7 +319,7 @@ int main (int argc, char** argv)
   pubPlan = nh.advertise<pcl::PCLPointCloud2> ("planes", 1);
   pubCyl = nh.advertise<pcl::PCLPointCloud2> ("cylinders", 1);
   marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/cylinder_markers", 1000);
-
+  cylinder_msg_pub = nh.advertise<clustering::Cluster2DArray>("exercise6/cylinder_clusters", 1000);
 
   // Spin
   ros::Rate rate(1);
@@ -297,4 +327,5 @@ int main (int argc, char** argv)
     ros::spinOnce();
     rate.sleep();
   }
+  std::cout << "----------------------------------------------" << std::endl;
 }

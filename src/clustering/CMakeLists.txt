@@ -46,6 +46,7 @@ find_package(catkin REQUIRED roscpp message_generation geometry_msgs)
 add_message_files(
   FILES
   Cluster2D.msg
+  Cluster2DArray.msg
 )
 
 ## Generate services in the 'srv' folder
