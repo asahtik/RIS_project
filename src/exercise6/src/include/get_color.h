@@ -33,7 +33,6 @@ namespace colorFromHSV {
   }
 
   std::string enumToString(int e) {
-    std::cout << "Color to String " << e << std::endl;
     switch(e) {
     case RED:
       return "red";

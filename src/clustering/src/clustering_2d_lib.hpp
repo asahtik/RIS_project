@@ -60,7 +60,7 @@ namespace clustering2d {
       // ROS_WARN("this: %s, b: %s", this->toString().c_str(), b.toString().c_str());
 
       this->id = this->id < b.id ? this->id : b.id;
-      this->status = this->id < b.id ? this->status : b.status;
+      this->status = this->id < b.id ? b.status : this->status;
       this->x = (this->x * prev_detections + b.x * b.detections) / this->detections;
       this->y = (this->y * prev_detections + b.y * b.detections) / this->detections;
       this->sin = (this->sin * prev_detections + b.sin * b.detections) / this->detections;
@@ -133,15 +133,24 @@ namespace clustering2d {
    * @param l list of cluster_t objects
    * @param arr object in which to store clustering::Cluster2DArray
    */
-  void to_cluster_array_msg(std::list<cluster_t> l, clustering::Cluster2DArray &arr) {
+  void to_cluster_array_msg(std::list<cluster_t> l, clustering::Cluster2DArray &arr, int min_detections) {
     int no = 0;
     for(cluster_t c : l) {
-      clustering::Cluster2D c2;
-      c.toCluster2D(c2);
-      arr.clusters.push_back(c2);
-      no++;
+      if(c.detections >= min_detections) {
+        clustering::Cluster2D c2;
+        c.toCluster2D(c2);
+        arr.clusters.push_back(c2);
+        no++;
+      }
     }
     arr.no = no;
+  }
+
+  cluster_t *find_by_id(std::list<cluster_t> &cs, int id) {
+    for(std::list<cluster_t>::iterator i = cs.begin(); i != cs.end(); ++i)
+      if(i->id == id) return &*i;
+    
+    return NULL;
   }
 
   /**
@@ -177,7 +186,6 @@ namespace clustering2d {
           if(&*c_i != &*c_j && cluster_dist(*c_i, *c_j) < max_dist && angle_diff(c_i->get_orientation(), c_j->get_orientation()) >= max_angle) ROS_INFO("ERROR Diff ang %f, %f, diff %f", c_i->get_orientation(), c_j->get_orientation(), angle_diff(c_i->get_orientation(), c_j->get_orientation()));
         }
       if(min > max_dist) {
-        ROS_INFO("Not working %f", min);
         break;
       } else {
         if(min < 0) break;
@@ -186,7 +194,9 @@ namespace clustering2d {
         n--;
       }
     }
-
+    int max_id_temp = 0;
+    for(cluster_t c : clusters) if(c.id >= max_id_temp) max_id_temp = c.id + 1;
+    max_id = max_id_temp;
     return n;
   }
 }

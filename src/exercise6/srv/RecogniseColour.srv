@@ -1,0 +1,12 @@
+uint16 RING = 1
+uint16 CYLINDER = 2
+
+float64[] hist
+uint16 type
+---
+uint16 RED = 1
+uint16 GREEN = 2
+uint16 YELLOW = 3
+uint16 BLUE = 4
+uint16 BLACK = 5
+uint16 colour

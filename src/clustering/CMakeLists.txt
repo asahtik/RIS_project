@@ -7,7 +7,7 @@ project(clustering)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED roscpp message_generation geometry_msgs)
+find_package(catkin REQUIRED COMPONENTS roscpp message_generation geometry_msgs)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -98,7 +98,7 @@ generate_messages(
 ## LIBRARIES: libraries you create in this project that dependent projects also need
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
-catkin_package(CATKIN_DEPENDS message_runtime LIBRARIES clustering2d_lib)
+# catkin_package(CATKIN_DEPENDS message_runtime LIBRARIES clustering2d_lib)
 
 ###########
 ## Build ##
@@ -111,9 +111,9 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-## Declare a C++ library
+# # Declare a C++ library
 # add_library(clustering2d_lib
-#   src/clustering_2d_lib.h
+#   src/clustering_2d_lib.cpp
 # )
 
 ## Add cmake target dependencies of the library
@@ -124,7 +124,7 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(clustering2d src/clustering_2d_node.cpp)
+# add_executable(clustering2d src/clustering_2d_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -134,12 +134,13 @@ add_executable(clustering2d src/clustering_2d_node.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-add_dependencies(clustering2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(clustering2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(clustering2d_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(clustering2d
-  ${catkin_LIBRARIES}
-)
+# target_link_libraries(clustering2d_lib
+#   ${catkin_LIBRARIES}
+# )
 
 #############
 ## Install ##
@@ -161,8 +162,8 @@ target_link_libraries(clustering2d
 #   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
 
-## Mark libraries for installation
-## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
+# Mark libraries for installation
+# See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
 # install(TARGETS clustering2d_lib
 #   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

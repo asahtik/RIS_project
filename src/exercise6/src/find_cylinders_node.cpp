@@ -24,7 +24,7 @@
 
 #include <Eigen/Core>
 
-#include "include/clustering_2d_lib.h"
+#include "include/clustering_2d_lib.hpp"
 #include "include/get_color.h"
 
 #define MIN_Z 0.1
@@ -65,12 +65,20 @@ std::string toString(double* arr, int size) {
     ss << arr[i] << " ";
   return ss.str();
 }
+std::string toString(std::list<clustering2d::cluster_t> &v) {
+  std::stringstream ret;
+  for(clustering2d::cluster_t p : v) {
+    ret << p.toString() << ", ";
+  }
+  return ret.str();
+}
 
 /**
  * @brief Publishes MarkerArray via marker_pub composed of cluster poses
  * @param cs std::list of clusters
 */
 void send_marr(std::list<clustering2d::cluster_t> &cs) {
+  ROS_WARN("Clusters: %s", toString(cs).c_str());
   visualization_msgs::MarkerArray marr;
   for(clustering2d::cluster_t c : cs) {
     if(c.detections < MIN_DETECTIONS) continue;
@@ -82,7 +90,6 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
     m.id = c.id; m_text.id = c.id;
     m.header.frame_id = "map"; m_text.header.frame_id = "map";
     m.header.stamp = ros::Time::now(); m_text.header.stamp = ros::Time::now();
-    m.lifetime = ros::Duration(10); m_text.lifetime = ros::Duration(10);
     m.pose = p; m_text.pose = p; m_text.pose.position.z = 0.5;
     m.type = visualization_msgs::Marker::CYLINDER; m_text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
     m.action = visualization_msgs::Marker::ADD; m_text.action = visualization_msgs::Marker::ADD;
@@ -93,6 +100,8 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
   }
   marker_pub.publish(marr);
 }
+
+Eigen::Vector4f get_cylinder_centroid(const sensor_msgs::PointCloud2ConstPtr&);
 
 // Subscriber callback
 void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
@@ -288,19 +297,23 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
         // ROS_INFO("No markers %d", no_markers);
         if(no_markers > 0) {
           clustering::Cluster2DArray carr;
-          clustering2d::to_cluster_array_msg(cylinder_c, carr);
+          carr.header.stamp = ros::Time::now();
+          clustering2d::to_cluster_array_msg(cylinder_c, carr, MIN_DETECTIONS);
           cylinder_msg_pub.publish(carr);
           send_marr(cylinder_c);
+
+          pcl::PCLPointCloud2 outcloud_cylinder;
+          pcl::toPCLPointCloud2 (*cloud_cylinder, outcloud_cylinder);
+          sensor_msgs::PointCloud2 outcloud_cylinder_msg;
+          pcl_conversions::fromPCL(outcloud_cylinder, outcloud_cylinder_msg);
+          outcloud_cylinder_msg.header.stamp = ros::Time::now();
+          pubCyl.publish(outcloud_cylinder);
         }
       }
       // pubm.publish (marker);
     } catch (tf2::TransformException &ex) {
       // ROS_WARN("Transform warning: %s\n", ex.what());
     }
-
-    pcl::PCLPointCloud2 outcloud_cylinder;
-    pcl::toPCLPointCloud2 (*cloud_cylinder, outcloud_cylinder);
-    pubCyl.publish (outcloud_cylinder);
   }
 }
 
@@ -317,7 +330,7 @@ int main (int argc, char** argv)
 
   // Create a ROS publisher for the output point cloud
   pubPlan = nh.advertise<pcl::PCLPointCloud2> ("planes", 1);
-  pubCyl = nh.advertise<pcl::PCLPointCloud2> ("cylinders", 1);
+  pubCyl = nh.advertise<sensor_msgs::PointCloud2> ("exercise6/cylinder_cloud", 1);
   marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/cylinder_markers", 1000);
   cylinder_msg_pub = nh.advertise<clustering::Cluster2DArray>("exercise6/cylinder_clusters", 1000);
 

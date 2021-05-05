@@ -6,6 +6,7 @@ find_package(Boost REQUIRED COMPONENTS system filesystem thread)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package( OpenCV REQUIRED )
+find_package(clustering)
 
 ## Find catkin packages
 find_package(catkin REQUIRED COMPONENTS
@@ -20,12 +21,23 @@ find_package(catkin REQUIRED COMPONENTS
   rosbag
   rosconsole
   roscpp
+  rospy
   roslib
   sensor_msgs
   std_msgs
   geometry_msgs
   tf2_ros
   tf2_geometry_msgs
+)
+
+add_service_files(
+  FILES
+  RecogniseColour.srv
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
   clustering
 )
 
@@ -60,6 +72,7 @@ catkin_package(
     roscpp
     sensor_msgs
     std_msgs
+    clustering
   DEPENDS
     Boost
     Eigen
@@ -78,6 +91,15 @@ add_executable (cylinder_segmentation src/cylinder_segmentation.cpp)
 add_executable (minicut_segmentation src/minicut_segmentation.cpp)
 add_executable (region_growing src/region_growing.cpp)
 add_executable (centroid_estimation src/centroid_estimation.cpp)
-add_executable(find_cylinders src/find_cylinders_node.cpp)
-add_executable(find_rings src/find_rings_node.cpp)
+add_executable (find_cylinders src/find_cylinders_node.cpp)
+add_executable (find_rings src/find_rings_node.cpp)
+add_executable (move_it src/move_it_node.cpp)
+
+# add_dependencies(find_cylinders ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(find_rings ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(move_it ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+# target_link_libraries(find_cylinders ${catkin_LIBRARIES})
+# target_link_libraries(find_rings ${catkin_LIBRARIES})
+# target_link_libraries(move_it ${catkin_LIBRARIES})
 
