@@ -381,12 +381,6 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
       pose.position.z = map.point.z;
       pose.orientation.w = 1.0;
 
-      clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(pose, colorFromHSV::get_from_hue(avg_hue));
-      if(cluster != NULL) {
-        ring_c.push_front(*cluster);
-        delete(cluster);
-      }
-
       /* exercise6::RecogniseColour srv;
       srv.request.type = exercise6::RecogniseColourRequest::RING;
       srv.request.hist = std::vector<double>(std::begin(clr_hist), std::end(clr_hist));
@@ -397,6 +391,12 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
           delete(cluster);
         }
       } else ROS_ERROR("Error in colour service"); */
+
+      clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(pose, colorFromHSV::get_from_hue(avg_hue));
+      if(cluster != NULL) {
+        ring_c.push_front(*cluster);
+        delete(cluster);
+      }
 
       // marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {
