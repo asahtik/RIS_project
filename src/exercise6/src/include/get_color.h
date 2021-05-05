@@ -24,6 +24,8 @@ namespace colorFromHSV {
    * @return int enum
    */
   int get_from_hue(float hue) {
+    hue += 10;
+    std::cout << "HUE " << hue << std::endl;
     if(hue <= 60.0) return RED;
     else if(hue <= 120.0) return YELLOW;
     else if(hue <= 180.0) return GREEN;

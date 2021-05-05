@@ -54,8 +54,8 @@
 #define LEAF_SIZE 0.01
 // #define ANGLE_Y_CORRECTION 0.0
 // #define ANGLE_X_CORRECTION 0.0
-#define MAX_RATIO 0.75
-#define MIN_DETECTIONS 1
+#define MAX_RATIO 0.5
+#define MIN_DETECTIONS 5
 #define RATE 2.0
 #define NO_COLORS 16 // do not change
 #define MIN_SATURATION 0.0
@@ -157,7 +157,7 @@ void send_marr(std::list<clustering2d::cluster_t> &cs) {
     m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1; m_text.scale.x = 0.3; m_text.scale.y = 0.1; m_text.scale.z = 0.1;
     m.color.a = 1.0; m.color.r = 1.0; m_text.color.a = 1.0;
     m_text.text = colorFromHSV::enumToString(c.status);
-    marr.markers.push_back(m); marr.markers.push_back(m_text);
+    marr.markers.push_back(m);
   }
   marker_pub.publish(marr);
 }
@@ -248,17 +248,16 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     rectify_rectangle(box);
 
     float x1 = box[0].x, x2 = box[2].x, y1 = box[0].y, y2 = box[2].y;
+    if(x1 < 0) x1 = 0;
+    if(x2 > width) x2 = width;
+    if(y2 < 0) y2 = 0;
+    if(y1 > height) y1 = height;
 
     // ROS_WARN("0 %f %f, 1 %f %f, 2 %f %f, 3 %f %f", e1_corners[0].x, e1_corners[0].y, e1_corners[1].x, e1_corners[1].y, e1_corners[2].x, e1_corners[2].y, e1_corners[3].x, e1_corners[3].y);
     // ROS_WARN("0 %f %f, 1 %f %f, 2 %f %f, 3 %f %f", e2_corners[0].x, e2_corners[0].y, e2_corners[1].x, e2_corners[1].y, e2_corners[2].x, e2_corners[2].y, e2_corners[3].x, e2_corners[3].y);
 
     // ROS_WARN("0 %f %f, 1 %f %f, 2 %f %f, 3 %f %f", box[0].x, box[0].y, box[1].x, box[1].y, box[2].x, box[2].y, box[3].x, box[3].y);
     // ROS_WARN("x1 %f, y2 %f, x2-x1 %f, y1-y2 %f", x1, y2, x2-x1, y1-y2);
-
-    // cv::Rect ROI2(x1, y2, x2 - x1, y1 - y2);
-    // cv::Mat temp = cv_bw(ROI2);
-    // cv::imshow("Edges", temp);
-    // int asg = cv::waitKey();
 
     // Get angles from sensor to bounding box corners
     int k_f = 554;
@@ -350,12 +349,17 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
     float miny = z * sin(v_angle_y2), maxy = z * sin(v_angle_y1);
     // ROS_INFO("Ring frame x %f %f, y %f %f", minx, maxx, miny, maxy);
     // float ratio = (float)cloud_down->points.size() / (abs(maxx - minx) * abs(maxy - miny) * 10000);
-    float ratio = (float)ring->points.size() / abs(maxx - minx) * abs(maxy - miny) * (LEAF_SIZE * LEAF_SIZE);
-    ROS_WARN("Frame size %f cm2, ratio %f", abs(maxx - minx) * abs(maxy - miny) * (1 / (LEAF_SIZE * LEAF_SIZE)), ratio);
+    float ratio = (float)ring->points.size() / (abs(maxx - minx) * abs(maxy - miny) * (1 / (LEAF_SIZE * LEAF_SIZE)));
+    ROS_WARN("Frame size %f cm2, ring_size %d, ratio %f", abs(maxx - minx) * abs(maxy - miny) * (1 / (LEAF_SIZE * LEAF_SIZE)), (int)ring->points.size(), ratio);
     // If true it's not a 3d ring
     if(ratio > MAX_RATIO) {
       continue;
     }
+
+    /* cv::Rect ROI2(x1, y2, x2 - x1, (y1 > n_h ? n_h : y1) - y2);
+    cv::Mat temp = cv_bw(ROI2);
+    cv::imshow("Edges", temp);
+    int asg = cv::waitKey(); */
 
     // std::cout << toString(clr_hist, NO_COLORS + 2) << std::endl;
     geometry_msgs::PointStamped optical;
@@ -377,7 +381,13 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
       pose.position.z = map.point.z;
       pose.orientation.w = 1.0;
 
-      exercise6::RecogniseColour srv;
+      clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(pose, colorFromHSV::get_from_hue(avg_hue));
+      if(cluster != NULL) {
+        ring_c.push_front(*cluster);
+        delete(cluster);
+      }
+
+      /* exercise6::RecogniseColour srv;
       srv.request.type = exercise6::RecogniseColourRequest::RING;
       srv.request.hist = std::vector<double>(std::begin(clr_hist), std::end(clr_hist));
       if(colour_client.call(srv)) {
@@ -386,7 +396,7 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
           ring_c.push_front(*cluster);
           delete(cluster);
         }
-      } else ROS_ERROR("Error in colour service");
+      } else ROS_ERROR("Error in colour service"); */
 
       // marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {

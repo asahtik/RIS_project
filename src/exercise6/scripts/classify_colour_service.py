@@ -44,7 +44,7 @@ class KNN:
     cdata = np.array(red + green + yellow + blue).astype(np.float32)
     clabels = cdata[:,-1]
     cdata = cdata[:, :-1]
-    print(cdata.shape)
+    print(cdata.cols)
     self.knnc = cv2.ml.KNearest_create()
     self.knnc.train(np.array(cdata), cv2.ml.ROW_SAMPLE, np.array(clabels))
 
@@ -81,17 +81,21 @@ class KNN:
 
     rdata = np.array(red + green + black + blue).astype(np.float32)
     rlabels = rdata[:,-1]
-    rdata = rdata[:, :-1]
-    print(rdata.shape)
+    rdata = rdata[:,:-1]
+    print(rdata.cols)
     self.knnr = cv2.ml.KNearest_create()
     self.knnr.train(rdata, cv2.ml.ROW_SAMPLE, rlabels)
 
 model = KNN()
 
 def handle_recognise(req):
-  hist = np.array(req.hist).astype(np.float32)
+  tmphist = np.array(req.hist).astype(np.float32)
+  hist = []
+  for i in tmphist:
+    hist.append([i])
+  hist = np.array(hist)
   t = req.type
-  print(hist.shape)
+  print(hist.cols)
   if t == req.CYLINDER:
     ret, results, neighbours, dist = model.knnc.findNearest(hist, NEAREST_K)
     print(results)
