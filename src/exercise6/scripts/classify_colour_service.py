@@ -1,8 +1,10 @@
+#! /usr/bin/env python
+
 import cv2
 import random
 import numpy as np
 import rospy
-from exercise6 import RecogniseColour, RecogniseColourRequest, RecogniseColourResponse
+from exercise6.srv import RecogniseColour, RecogniseColourRequest, RecogniseColourResponse
 
 NEAREST_K = 1
 
@@ -39,11 +41,12 @@ class KNN:
     for i in blue:
       i.append(4)
 
-    cdata = np.array(red + green + yellow + blue)
+    cdata = np.array(red + green + yellow + blue).astype(np.float32)
     clabels = cdata[:,-1]
     cdata = cdata[:, :-1]
+    print(cdata.shape)
     self.knnc = cv2.ml.KNearest_create()
-    self.knnc.train(cdata, cv2.ml.ROW_SAMPLE, clabels)
+    self.knnc.train(np.array(cdata), cv2.ml.ROW_SAMPLE, np.array(clabels))
 
     # Rings
     r = open("knn_data/ring_red.txt")
@@ -76,27 +79,31 @@ class KNN:
     for i in blue:
       i.append(4)
 
-    rdata = np.array(red + green + black + blue)
+    rdata = np.array(red + green + black + blue).astype(np.float32)
     rlabels = rdata[:,-1]
     rdata = rdata[:, :-1]
+    print(rdata.shape)
     self.knnr = cv2.ml.KNearest_create()
     self.knnr.train(rdata, cv2.ml.ROW_SAMPLE, rlabels)
 
 model = KNN()
 
 def handle_recognise(req):
-  hist = np.array(req.hist)
+  hist = np.array(req.hist).astype(np.float32)
   t = req.type
+  print(hist.shape)
   if t == req.CYLINDER:
     ret, results, neighbours, dist = model.knnc.findNearest(hist, NEAREST_K)
+    print(results)
     return RecogniseColourResponse(colour=results[0][0])
   elif t == req.RING:
     ret, results, neighbours, dist = model.knnr.findNearest(hist, NEAREST_K)
+    print(results)
     return RecogniseColourResponse(colour=results[0][0])
   else:
     return RecogniseColourResponse(colour=0)
 
 if __name__ == "__main__":
   rospy.init_node('colour_recognition_server')
-  s = rospy.Service('recognise_colour', RecogniseColour, handle_recognise)
-
+  s = rospy.Service('exercise6/recognise_colour', RecogniseColour, handle_recognise)
+  rospy.spin()

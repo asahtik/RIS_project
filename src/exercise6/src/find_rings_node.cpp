@@ -36,6 +36,7 @@
 #include <iterator>
 #include <algorithm>
 
+#include "exercise6/RecogniseColour.h"
 #include "include/clustering_2d_lib.hpp"
 #include "include/get_color.h"
 
@@ -66,6 +67,7 @@
 ros::Publisher marker_pub;
 ros::Publisher ring_cloud_pub;
 ros::Publisher ring_msg_pub;
+ros::ServiceClient colour_client;
 
 class tf2_buf {
   public:
@@ -375,11 +377,16 @@ void find_rings(const sensor_msgs::ImageConstPtr &rgb_img, const sensor_msgs::Po
       pose.position.z = map.point.z;
       pose.orientation.w = 1.0;
 
-      clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(pose, colorFromHSV::get_from_hue(avg_hue));
-      if(cluster != NULL) {
-        ring_c.push_front(*cluster);
-        delete(cluster);
-      }
+      exercise6::RecogniseColour srv;
+      srv.request.type = exercise6::RecogniseColourRequest::RING;
+      srv.request.hist = std::vector<double>(std::begin(clr_hist), std::end(clr_hist));
+      if(colour_client.call(srv)) {
+        clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(pose, srv.response.colour);
+        if(cluster != NULL) {
+          ring_c.push_front(*cluster);
+          delete(cluster);
+        }
+      } else ROS_ERROR("Error in colour service");
 
       // marker_pub.publish(m);
     } catch(tf2::TransformException &ex) {
@@ -402,6 +409,8 @@ int main(int argc, char **argv) {
   ros::NodeHandle nh;
 
   tfBuf.initialise();
+
+  colour_client = nh.serviceClient<exercise6::RecogniseColour>("exercise6/recognise_colour");
 
   marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/ring_markers", 1000);
   ring_cloud_pub = nh.advertise<pcl::PCLPointCloud2>("exercise6/ring_cloud", 1);
