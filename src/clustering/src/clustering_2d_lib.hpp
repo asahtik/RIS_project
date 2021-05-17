@@ -14,7 +14,7 @@ namespace clustering2d {
   /**
    * \brief sets value (distance) to be used to determine whether two clusters are to be joined
    * \param d max distance, default 0.5
-  */ 
+   */ 
   void set_max_dist(double d) {
     max_dist = d;
   }
@@ -22,7 +22,7 @@ namespace clustering2d {
   /**
    * \brief sets value (angle difference) to be used to determine whether two clusters are to be joined
    * \param d max angle diff, default 0.7854
-  */ 
+   */ 
   void set_max_diff(double d) {
     max_angle = d;
   }
@@ -44,7 +44,7 @@ namespace clustering2d {
 
     /**
      * \brief gets orientation in rad
-    */ 
+     */ 
     double get_orientation() {
       return atan2(sin / detections, cos / detections);
     }
@@ -52,13 +52,12 @@ namespace clustering2d {
     /**
      * \brief joins two clusters
      * \param b second join source
-    */ 
+     */ 
     cluster_t* join(const cluster_t &b) {
       int prev_detections = this->detections;
       this->detections += b.detections;
 
       // ROS_WARN("this: %s, b: %s", this->toString().c_str(), b.toString().c_str());
-
       this->id = this->id < b.id ? this->id : b.id;
       this->status = this->id < b.id ? b.status : this->status;
       this->x = (this->x * prev_detections + b.x * b.detections) / this->detections;
@@ -70,9 +69,32 @@ namespace clustering2d {
     }
 
     /**
+     * @brief Get the closest cluster
+     * 
+     * @param cs std::list<cluster_t> containing all clusters
+     * @return pointer to the closest cluster
+     */
+    double get_closest(std::list<cluster_t> &cs, cluster_t *closest = NULL, bool save_closest = false) {
+      if(cs.size() == 1) return -1.0;
+      double min_d = -1.0;
+      cluster_t *min = NULL;
+      for(std::list<cluster_t>::iterator it = cs.begin(); it != cs.end(); ++it) {
+        if(this->id != it->id) {
+          double dist = sqrt(pow(this->x - it->x, 2) + pow(this->y - it->y, 2));
+          if(min_d < 0.0 || dist < min_d) {
+            min_d = dist;
+            min = &*it;
+          }
+        }
+      }
+      if(save_closest) closest = min;
+      return min_d;
+    }
+
+    /**
      * \brief transforms cluster class to geometry_msgs::Pose type
      * \param p object in which to store data
-    */ 
+     */ 
     void toPose(geometry_msgs::Pose &p) {
       p.position.x = this->x;
       p.position.y = this->y;
@@ -83,7 +105,7 @@ namespace clustering2d {
     /**
      * \brief transforms cluster class to clustering::Cluster2D type
      * \param p object in which to store data
-    */ 
+     */ 
     void toCluster2D(clustering::Cluster2D &c) {
       c.x = this->x;
       c.y = this->y;
@@ -108,15 +130,17 @@ namespace clustering2d {
      * @param status value in which to store some data
      * @return true if Pose is valid
      * @return false if Pose is invalid
-    */
+     */
     static cluster_t *getCluster(geometry_msgs::Pose &pose, int status = 0) {
-      if(std::isinf(pose.position.x) || std::isinf(pose.position.y) || std::isinf(pose.position.z) ||
-          std::isinf(pose.orientation.x) || std::isinf(pose.orientation.y) || std::isinf(pose.orientation.z) || std::isinf(pose.orientation.w)) return NULL;
+      if(std::isinf(pose.position.x) || std::isnan(pose.position.x) || std::isinf(pose.position.y) || std::isnan(pose.position.y) || 
+          std::isinf(pose.position.z) || std::isnan(pose.position.z) || std::isinf(pose.orientation.x) || std::isnan(pose.orientation.x) || 
+          std::isinf(pose.orientation.y) || std::isnan(pose.orientation.y) || std::isinf(pose.orientation.z) || std::isnan(pose.orientation.z) || 
+          std::isinf(pose.orientation.w) || std::isnan(pose.orientation.w)) return NULL;
       return new cluster_t(max_id++, pose, status);
     }
 
     private:
-    cluster_t(int id, geometry_msgs::Pose &pose, int status = 0) {
+    cluster_t(int id, geometry_msgs::Pose &pose, int status) {
       this->x = pose.position.x;
       this->y = pose.position.y;
       this->detections = 1;
@@ -146,6 +170,13 @@ namespace clustering2d {
     arr.no = no;
   }
 
+  /**
+   * @brief Finds cluster by id.
+   * 
+   * @param cs list of type std::list<cluster_t> holding all clusters.
+   * @param id id to look for.
+   * @return cluster_t*. NULL if not found.
+   */
   cluster_t *find_by_id(std::list<cluster_t> &cs, int id) {
     for(std::list<cluster_t>::iterator i = cs.begin(); i != cs.end(); ++i)
       if(i->id == id) return &*i;
@@ -154,11 +185,26 @@ namespace clustering2d {
   }
 
   /**
+   * @brief Finds cluster id to which cluster was joined.
+   * 
+   * @param joins of type std::vector<std::list<int>> where joins are stored.
+   * @param id original id of cluster.
+   * @return int cluster id. If not found equals original id.
+   */
+  int clustered_id(std::vector<int> &joins, int id) {
+    if(id == 0) return 0;
+    for(int i = 0; i < id; i++) {
+      if(joins[i] == id) return clustered_id(joins, i);
+    }
+    return id;
+  }
+
+  /**
    * \brief get distance between centers of clusters
    * \param a first cluster
    * \param b second cluster
    * \return std::tuple (vector<Pose>, vector<cluster_t>, int no_clusters)
-  */ 
+   */ 
   double cluster_dist(cluster_t &a, cluster_t &b) {
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
   }
@@ -167,10 +213,13 @@ namespace clustering2d {
    * \brief joins nearby poses
    * \param clusters of type std::list<cluster_t>. Clusters from previous iterations. Gets rewritten with clusters.
    * \param poses of type std::list<geometry_msgs::Pose>. Poses to be clustered.
+   * \param joins of type std::vector<int>*. Optional. Stores vector of joined clusters for each output cluster id.
    * \return number of clusters
-  */
-  int cluster(std::list<cluster_t> &clusters) {
+   */
+  int cluster(std::list<cluster_t> &clusters, std::vector<int> *joins = NULL) {
+    if(joins != NULL) joins->clear();
     int n = clusters.size();
+    joins->resize(n, -1);
     while(ros::ok() && n >= 2) {
       double min = -1.0;
       std::list<cluster_t>::iterator min_i, min_j;
@@ -189,6 +238,7 @@ namespace clustering2d {
         break;
       } else {
         if(min < 0) break;
+        if(joins != NULL) (*joins)[(min_i->id < min_j->id) ? min_i->id : min_j->id] = ((min_i->id < min_j->id) ? min_j->id : min_i->id);
         min_i->join(*min_j);
         clusters.erase(min_j);
         n--;

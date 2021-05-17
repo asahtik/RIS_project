@@ -65,6 +65,7 @@ catkin_package(
     pcl_ros_filters
     pcl_ros_io
     pcl_ros_tf
+    clustering
   CATKIN_DEPENDS
     dynamic_reconfigure
     pcl_conversions
@@ -72,7 +73,6 @@ catkin_package(
     roscpp
     sensor_msgs
     std_msgs
-    clustering
   DEPENDS
     Boost
     Eigen

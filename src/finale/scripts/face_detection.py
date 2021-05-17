@@ -38,7 +38,7 @@ class face_localizer:
         # self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
 
         # Publiser for the visualization markers
-        self.markers_pub = rospy.Publisher('face_markers/processing', PoseArray, queue_size=1000)
+        self.markers_pub = rospy.Publisher('finale/face_clustering', PoseArray, queue_size=1000)
         # Object we use for transforming between coordinate frames
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
