@@ -9,9 +9,9 @@ import numpy as np
 import tf2_geometry_msgs
 import tf2_ros
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PointStamped, Vector3, Pose, PoseStamped, PoseArray
+from geometry_msgs.msg import PoseStamped, PoseArray
 from cv_bridge import CvBridge, CvBridgeError
-from std_msgs.msg import ColorRGBA
+from finale.msg import FaceDetectorToClustering
 
 MIN_CONF = 0.3
 MAX_DETECTION_ANGLE = 1.05
@@ -38,7 +38,7 @@ class face_localizer:
         # self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
 
         # Publiser for the visualization markers
-        self.markers_pub = rospy.Publisher('finale/face_clustering', PoseArray, queue_size=1000)
+        self.markers_pub = rospy.Publisher('finale/face_clustering', FaceDetectorToClustering, queue_size=1000)
         # Object we use for transforming between coordinate frames
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf)
@@ -54,7 +54,6 @@ class face_localizer:
 
         # Get the angles in the base_link relative coordinate system
         face_x = self.dims[1] / 2 - (x1+x2)/2.
-        face_y = self.dims[0] / 2 - (y1+y2)/2.
         angle_to_target = np.arctan2(face_x, k_f)
         x, y = dist[0]*np.cos(angle_to_target), dist[0]*np.sin(angle_to_target)
 
@@ -105,7 +104,7 @@ class face_localizer:
             print(e)
             pose = None
 
-        return pose
+        return (pose, pose_s, angle_to_target)
     
 
     def find_faces(self):
@@ -157,6 +156,8 @@ class face_localizer:
         face_detections = self.face_net.forward()
 
         pose_array = PoseArray()
+        camera_pose_array = PoseArray()
+        angle_array = []
 
         for i in range(0, face_detections.shape[2]):
             confidence = face_detections[0, 0, i, 2]
@@ -181,12 +182,21 @@ class face_localizer:
                 depth_time = depth_image_message.header.stamp
 
                 # Find the location of the detected face
-                pose = self.get_pose((x1,x2,y1,y2), face_distance, depth_time)
+                (pose, pose_s, angle) = self.get_pose((x1,x2,y1,y2), face_distance, depth_time)
 
                 if pose is not None:
                     pose_array.poses.append(pose.pose)
+                    camera_pose_array.poses.append(pose_s)
+                    angle_array.append(angle)
 
-        self.markers_pub.publish(pose_array)
+        data = FaceDetectorToClustering()
+        data.angles = angle_array
+        data.inCamera.header.stamp = depth_image_message.header.stamp
+        data.inCamera.poses = camera_pose_array
+        data.faces.header.stamp = depth_image_message.header.stamp
+        data.faces.poses = pose_array
+        
+        self.markers_pub.publish(data)
 
     def depth_callback(self,data):
 

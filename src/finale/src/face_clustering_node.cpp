@@ -1,7 +1,5 @@
 #include <ros/ros.h>
 #include "std_msgs/ColorRGBA.h"
-#include "visualization_msgs/Marker.h"
-#include "visualization_msgs/MarkerArray.h"
 #include "geometry_msgs/Pose.h"
 #include "geometry_msgs/PoseStamped.h"
 #include "geometry_msgs/PoseArray.h"
@@ -14,9 +12,16 @@
 #include <vector>
 #include <math.h>
 
-#include "include/clustering_2d_lib.hpp"
+#include "finale/FaceCluster.h"
+#include "finale/ClusterInCamera.h"
+#include "finale/FaceDetectorToClustering.h"
+#include "finale/FaceClusteringToHub.h"
+#include "include/clustering2d_lib.cpp"
 
-#define SAFETY_DISTANCE 2.0
+#define SAFETY_DISTANCE 1.0
+
+// approach angle, approach Pose
+typedef std::tuple<float, geometry_msgs::Pose> approachp;
 
 ros::NodeHandle *n;
 sound_play::SoundClient *sc;
@@ -25,53 +30,76 @@ ros::Publisher marker_pub;
 double min_dist, max_angle;
 int min_det, max_unvisited = 1;
 
-// filters and transforms cluster list to MarkerArray, could optimise min_detections criteria (e.g. by using limit n-times smallest value)
-int to_markers(std::list<clustering2d::cluster_t> &clusters, int min_detections, visualization_msgs::MarkerArray &ret) {
-  int no_faces = 0;
-  for(std::list<clustering2d::cluster_t>::iterator c = clusters.begin(); c != clusters.end(); ++c) {
-    if(c->detections - min_detections > -0.01) {
-      visualization_msgs::Marker mark; geometry_msgs::Pose p;
-      mark.header.stamp = ros::Time(0);
-      mark.header.frame_id = "map";
-      mark.id = c->id;
-      mark.type = visualization_msgs::Marker::ARROW;
-      mark.action = visualization_msgs::Marker::ADD;
-      mark.frame_locked = false;
-      geometry_msgs::Vector3 scale; scale.x = 0.2; scale.y = 0.05; scale.z = 0.05;
-      mark.scale = scale;
-      // mark.lifetime = ros::Duration(1.0);
-      c->toPose(p);
-      if(isnan(p.position.x) || isnan(p.position.y) || isnan(p.orientation.z) || isnan(p.orientation.w)) {
-        std::list<clustering2d::cluster_t>::iterator temp = c;
-        c--;
-        clusters.erase(temp);
-        continue;
-      }
-      mark.pose = p;
-      mark.id = no_faces;
-      std_msgs::ColorRGBA clr; clr.a = 1; clr.r = 0;
-      if(c->status) {
-        clr.b = 1; clr.g = 0;
-      } else {
-        clr.b = 0; clr.g = 1;
-      }
-      mark.color = clr;
-
-      ret.markers.push_back(mark);
-      no_faces++;
-    }
-  }
-  return no_faces;
+approachp joinf(const approachp &a, const approachp &b) {
+  if(abs(std::get<0>(a)) < abs(std::get<0>(b))) return a;
+  else return b;
 }
 
-std::list<clustering2d::cluster_t> faces;
+int toHubMsg(ros::Time stamp, std::list<clustering2d::cluster_t<approachp>>& fs, std::vector<std::tuple<int, geometry_msgs::Pose>>& cs, finale::FaceClusteringToHub& out, int mind) {
+  out.stamp = stamp;
+  for(std::tuple<int, geometry_msgs::Pose> c : cs) {
+    finale::ClusterInCamera t;
+    t.id = std::get<0>(c);
+    t.pose = std::get<1>(c);
+    out.inCamera.push_back(t);
+  }
+  int no = 0;
+  for(clustering2d::cluster_t<approachp> f : fs) {
+    finale::FaceCluster t;
+    t.id = f.id;
+    t.x = f.x;
+    t.y = f.y;
+    t.cos = f.cos;
+    t.sin = f.sin;
+    t.status = f.status;
+    t.detections = f.detections;
+    t.approach = std::get<1>(f.data);
+    if(t.detections >= mind) {
+      out.faces.push_back(t);
+      no++;
+    }
+  }
+  return no;
+}
 
-void cluster_markers(const geometry_msgs::PoseArray::ConstPtr& posearr) {
-  std::list<int> new_clusters;
-  for(geometry_msgs::Pose p : posearr->poses) {
-    clustering2d::cluster_t *cluster = clustering2d::cluster_t::getCluster(p);
+geometry_msgs::Pose get_approach_point(geometry_msgs::Pose &p, geometry_msgs::Pose &c) {
+  double c_x = c.position.x, c_y = c.position.y;
+  double d_x = c_x * c.orientation.w, d_y = c_y * c.orientation.z;
+
+  double c_cos = c.orientation.w, c_sin = c.orientation.z;
+  double p_cos = -p.orientation.w, p_sin = -p.orientation.z;
+
+  double vcos = p_cos * c_cos - p_sin * c_sin, vsin = p_sin * c_cos + p_cos * c_sin;
+  vcos = vcos / (vcos + vsin);
+  vsin = vsin / (vcos + vsin);
+
+  geometry_msgs::Pose ret;
+  ret.orientation.w = vcos;
+  ret.orientation.z = vsin;
+  ret.position.x = p.position.x + d_x;
+  ret.position.y = p.position.y + d_y;
+
+  return ret;
+}
+
+std::list<clustering2d::cluster_t<approachp>> faces;
+
+void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) {
+  std::vector<int> new_clusters;
+  std::vector<geometry_msgs::Pose> fcs = posearr->faces.poses;
+  std::vector<geometry_msgs::Pose> inCamera = posearr->inCamera.poses;
+  std::vector<float> angls = posearr->angles;
+  
+  assert(fcs.size() == inCamera.size() && inCamera.size() == angls.size());
+
+  int size = fcs.size();
+  new_clusters.resize(size);
+
+  for(int i = 0; i < size; i++) {
+    geometry_msgs::Pose aprch;
+    clustering2d::cluster_t<approachp> *cluster = clustering2d::cluster_t<approachp>::getCluster(fcs[i], 0, approachp(angls[i], aprch), &joinf);
     if(cluster != NULL) {
-      new_clusters.push_back(cluster->id);
+      new_clusters[i] = cluster->id;
       faces.push_front(*cluster);
     }
   }
@@ -79,14 +107,18 @@ void cluster_markers(const geometry_msgs::PoseArray::ConstPtr& posearr) {
   int no_markers = clustering2d::cluster(faces, &joins);
 
   std::list<int> new2_clusters;
+  // id, pose in camera
+  std::vector<std::tuple<int, geometry_msgs::Pose>> cam_pose(size);
   std::string s = "Stay two meters apart";
-  for(int cl : new_clusters) {
+  for(int i = 0; i < size; i++) {
+    int cl = new_clusters[i];
     int ncl = clustering2d::clustered_id(joins, cl);
+    cam_pose[i] = std::tuple<int, geometry_msgs::Pose>(ncl, inCamera[i]);
     bool isNew = true;
     for(int i : new2_clusters) if(i == ncl) {isNew = false; break;}
     if(isNew) {
       new2_clusters.push_back(ncl);
-      clustering2d::cluster_t *nearestcl = clustering2d::find_by_id(faces, ncl);
+      clustering2d::cluster_t<approachp> *nearestcl = clustering2d::find_by_id(faces, ncl);
       double dist = nearestcl->get_closest(faces);
       if(dist >= 0.0) {
         if(dist < SAFETY_DISTANCE) {
@@ -100,11 +132,11 @@ void cluster_markers(const geometry_msgs::PoseArray::ConstPtr& posearr) {
       }
     } else {}
   }
-  // filter by # detections and transform to marker array
-  visualization_msgs::MarkerArray marr;
-  int no = to_markers(faces, min_det, marr);
+  // filter by # detections and transform to msg
+  finale::FaceClusteringToHub fcl2hub;
+  int no = toHubMsg(posearr->faces.header.stamp, faces, cam_pose, fcl2hub, min_det);
   // std::cout << "No markers " << no << " ";
-  marker_pub.publish(marr);
+  marker_pub.publish(fcl2hub);
 }
 
 int main(int argc, char **argv) {
@@ -117,7 +149,7 @@ int main(int argc, char **argv) {
 
   ROS_INFO("Initialized clustering node");
 
-  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("face_markers/faces", 1000);
+  marker_pub = nh.advertise<finale::FaceClusteringToHub>("finale/faces", 1000);
 
   if(!nh.getParam("/face_clustering/min_dist", min_dist)) min_dist = 0.5;
   if(!nh.getParam("/face_clustering/max_angle", max_angle)) max_angle = 0.7854;
