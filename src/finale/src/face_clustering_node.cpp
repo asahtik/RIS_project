@@ -30,9 +30,9 @@ ros::Publisher marker_pub;
 double min_dist, max_angle;
 int min_det, max_unvisited = 1;
 
-approachp joinf(const approachp &a, const approachp &b) {
-  if(abs(std::get<0>(a)) < abs(std::get<0>(b))) return a;
-  else return b;
+approachp joinf(const clustering2d::cluster_t<approachp> &a, const clustering2d::cluster_t<approachp> &b) {
+  if(abs(std::get<0>(a.data)) < abs(std::get<0>(b.data))) return a.data;
+  else return b.data;
 }
 
 int toHubMsg(ros::Time stamp, std::list<clustering2d::cluster_t<approachp>>& fs, std::vector<std::tuple<int, geometry_msgs::Pose>>& cs, finale::FaceClusteringToHub& out, int mind) {

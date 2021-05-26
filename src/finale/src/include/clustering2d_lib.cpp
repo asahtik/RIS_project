@@ -40,7 +40,7 @@ namespace clustering2d {
     int detections, id;
     int status;
     T data;
-    T (*joinf)(const T&, const T&);
+    T (*joinf)(const cluster_t<T>&, const cluster_t<T>&);
 
     /**
      * \brief gets orientation in rad
@@ -55,6 +55,8 @@ namespace clustering2d {
      */ 
     cluster_t<T>* join(const cluster_t<T> &b) {
       int prev_detections = this->detections;
+      this->data = joinf(*this, b);
+      
       this->detections += b.detections;
 
       // ROS_WARN("this: %s, b: %s", this->toString().c_str(), b.toString().c_str());
@@ -64,7 +66,6 @@ namespace clustering2d {
       this->y = (this->y * prev_detections + b.y * b.detections) / this->detections;
       this->sin = (this->sin * prev_detections + b.sin * b.detections) / this->detections;
       this->cos = (this->cos * prev_detections + b.cos * b.detections) / this->detections;
-      this->data = joinf(this->data, b.data);
       return this;
     }
 
@@ -117,7 +118,7 @@ namespace clustering2d {
      * @return true if Pose is valid
      * @return false if Pose is invalid
      */
-    static cluster_t<T> *getCluster(geometry_msgs::Pose &pose, int status, T data, T (*joinf)(const T&, const T&)) {
+    static cluster_t<T> *getCluster(geometry_msgs::Pose &pose, int status, T data, T (*joinf)(const cluster_t<T>&, const cluster_t<T>&)) {
       if(std::isinf(pose.position.x) || std::isnan(pose.position.x) || std::isinf(pose.position.y) || std::isnan(pose.position.y) || 
           std::isinf(pose.position.z) || std::isnan(pose.position.z) || std::isinf(pose.orientation.x) || std::isnan(pose.orientation.x) || 
           std::isinf(pose.orientation.y) || std::isnan(pose.orientation.y) || std::isinf(pose.orientation.z) || std::isnan(pose.orientation.z) || 
@@ -126,7 +127,7 @@ namespace clustering2d {
     }
 
     private:
-    cluster_t(int id, geometry_msgs::Pose &pose, int status, T data, T (*joinf)(const T&, const T&)) {
+    cluster_t(int id, geometry_msgs::Pose &pose, int status, T data, T (*joinf)(const cluster_t<T>&, const cluster_t<T>&)) {
       this->x = pose.position.x;
       this->y = pose.position.y;
       this->detections = 1;

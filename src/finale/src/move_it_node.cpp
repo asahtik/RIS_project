@@ -33,6 +33,7 @@
 #define MAX_TIME_DIFF 1.0
 #define MAX_APPROACH_ANGLE 10.0 * M_PI / 180.0
 #define MAX_APPROACH_DISTANCE 0.3
+#define MAX_SEARCH_ROTATIONS 10
 
 typedef std::tuple<int, int> facedata;
 typedef std::vector<int> cyldata;
@@ -78,6 +79,11 @@ std::tuple<ros::Time, actionlib_msgs::GoalStatus> goal_status;
 template<typename T>
 void add_to_list(T &el, std::list<T*> &list) {
   list.push_back(&el);
+}
+template<typename T>
+void add_to_end(T &el, std::list<T*> &list, bool lifo = false) {
+  if(lifo) list.push_front(&el);
+  else list.push_back(&el);
 }
 template<typename T>
 T* pop_from_list(std::list<T*> &list, bool lifo = false) {
@@ -158,7 +164,7 @@ void handleStopped() {
   STATE = getState();
 }
 void handleWandering() {
-  
+  // Goto next goal TODO
   STATE = getState();
 }
 void handleGotoFace() {
@@ -202,14 +208,22 @@ void handleApproachFace() {
     // Invalid face - rotate w/ pose and cluster loc
     actionlib_msgs::GoalStatus st = std::get<1>(goal_status);
     if(st.status == st.SUCCEEDED) {
-      geometry_msgs::Pose p = std::get<1>(recent_pose);
-      double fvec[2] = {-p.position.x + curr_face->x, -p.position.y + curr_face->y};
-      double pvec[2] = {p.orientation.w, p.orientation.z};
-      double cosang = (fvec[0] * pvec[0] + fvec[1] * pvec[1]) / (sqrt(pow(fvec[0], 2) + pow(fvec[1], 2)) * sqrt(pow(pvec[0], 2) + pow(pvec[1], 2)));
-      // TODO rotate
+      if(no_rotations == 0) {
+        geometry_msgs::Pose p = std::get<1>(recent_pose);
+        double fvec[2] = {-p.position.x + curr_face->x, -p.position.y + curr_face->y};
+        double pvec[2] = {p.orientation.w, p.orientation.z};
+        double cosang = (fvec[0] * pvec[0] + fvec[1] * pvec[1]) / (sqrt(pow(fvec[0], 2) + pow(fvec[1], 2)) * sqrt(pow(pvec[0], 2) + pow(pvec[1], 2)));
+        velocity_pub.publish(getTwist(0, 0.2 * (abs(cosang) / cosang)));
+        no_rotations++;
+      } else if(no_rotations > MAX_SEARCH_ROTATIONS) {
+        // Try again later
+        no_rotations = 0;
+        add_to_end(*curr_face, face_list, LIFO);
+        STATE = getState();
+        if(face_list.size() == 1) STATE = WANDERING;
+      } else no_rotations++;
     } 
   }
-  // STATE = INTERACT_FACE;
 }
 void handleInteractFace() {
 
@@ -309,7 +323,7 @@ void ringCallback() {
 
 void goalCallback(const actionlib_msgs::GoalStatusArray::ConstPtr &msg) {
   // TODO fix states not working correctly
-  ROS_INFO("Goal Array length %d", msg->status_list.size());
+  ROS_INFO("Goal Array length %d", (int)msg->status_list.size());
   goal_status = std::tuple<ros::Time, actionlib_msgs::GoalStatus>(msg->header.stamp, msg->status_list[0]);
 }
 
