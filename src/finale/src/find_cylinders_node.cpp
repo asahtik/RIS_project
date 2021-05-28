@@ -334,7 +334,7 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
 int main (int argc, char** argv)
 {
   // Initialize ROS
-  ros::init (argc, argv, "find_stuff");
+  ros::init (argc, argv, "find_cylinders2");
   ros::NodeHandle nh;
 
   tfListener = new tf2_ros::TransformListener(tfBuffer);

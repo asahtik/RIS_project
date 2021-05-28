@@ -155,8 +155,8 @@ class face_localizer:
         self.face_net.setInput(blob)
         face_detections = self.face_net.forward()
 
-        pose_array = PoseArray()
-        camera_pose_array = PoseArray()
+        pose_array = []
+        camera_pose_array = []
         angle_array = []
 
         for i in range(0, face_detections.shape[2]):
@@ -185,8 +185,8 @@ class face_localizer:
                 (pose, pose_s, angle) = self.get_pose((x1,x2,y1,y2), face_distance, depth_time)
 
                 if pose is not None:
-                    pose_array.poses.append(pose.pose)
-                    camera_pose_array.poses.append(pose_s)
+                    pose_array.append(pose.pose)
+                    camera_pose_array.append(pose_s.pose)
                     angle_array.append(angle)
 
         data = FaceDetectorToClustering()
@@ -195,7 +195,6 @@ class face_localizer:
         data.inCamera.poses = camera_pose_array
         data.faces.header.stamp = depth_image_message.header.stamp
         data.faces.poses = pose_array
-        
         self.markers_pub.publish(data)
 
     def depth_callback(self,data):

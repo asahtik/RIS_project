@@ -85,6 +85,7 @@ geometry_msgs::Pose get_approach_point(geometry_msgs::Pose &p, geometry_msgs::Po
 std::list<clustering2d::cluster_t<approachp>> faces;
 
 void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) {
+  ROS_INFO("Got markers");
   std::vector<int> new_clusters;
   std::vector<geometry_msgs::Pose> fcs = posearr->faces.poses;
   std::vector<geometry_msgs::Pose> inCamera = posearr->inCamera.poses;
@@ -135,13 +136,14 @@ void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) 
   // filter by # detections and transform to msg
   finale::FaceClusteringToHub fcl2hub;
   int no = toHubMsg(posearr->faces.header.stamp, faces, cam_pose, fcl2hub, min_det);
+  ROS_INFO("Number of detected clusters %d", no);
   // std::cout << "No markers " << no << " ";
   marker_pub.publish(fcl2hub);
 }
 
 int main(int argc, char **argv) {
 
-	ros::init(argc, argv, "face_clustering");
+	ros::init(argc, argv, "face_clustering2");
   ros::NodeHandle nh;
   sound_play::SoundClient s;
   n = &nh;

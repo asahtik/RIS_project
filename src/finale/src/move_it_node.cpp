@@ -19,6 +19,7 @@
 
 #include <random>
 #include <time.h>
+#include <sstream>
 #include <math.h>
 
 #include "include/object_data.cpp"
@@ -31,8 +32,8 @@
 #define NO_RADIUS_CHECKS 50
 #define SAFETY_RADIUS 0.3
 #define MAX_TIME_DIFF 1.0
-#define MAX_APPROACH_ANGLE 10.0 * M_PI / 180.0
-#define MAX_APPROACH_DISTANCE 0.3
+#define MAX_APPROACH_ANGLE 5.0 * M_PI / 180.0
+#define MAX_APPROACH_DISTANCE 0.6
 #define MAX_SEARCH_ROTATIONS 10
 
 typedef std::tuple<int, int> facedata;
@@ -85,6 +86,18 @@ void add_to_end(T &el, std::list<T*> &list, bool lifo = false) {
   if(lifo) list.push_front(&el);
   else list.push_back(&el);
 }
+void sendDebug(geometry_msgs::Pose &p, const char *frame) {
+  visualization_msgs::Marker m;
+  m.header.frame_id = frame;
+  m.header.stamp = ros::Time::now();
+  m.id = 0;
+  m.pose = p;
+  m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+  m.type = m.SPHERE;
+  m.color.a = 1.0; m.color.r = 1.0;
+  m.action = m.ADD;
+  debug_point_pub.publish(m);
+}
 template<typename T>
 T* pop_from_list(std::list<T*> &list, bool lifo = false) {
   if(lifo) {
@@ -115,6 +128,14 @@ geometry_msgs::Twist getTwist(float lx, float az) {
   ret.linear.x = lx;
   ret.angular.z = az;
   return ret;
+}
+
+std::string poseToString(const geometry_msgs::Pose &p, bool angle = true) {
+  std::stringstream ss;
+  ss << "x: " << p.position.x << ", y: " << p.position.y;
+  if(angle) ss << ", angle: " << atan2(p.orientation.z, p.orientation.w) * M_PI / 180;
+  else ss << ", z: " << p.orientation.z << ", w: " << p.orientation.w;
+  return ss.str();
 }
 
 double get_ang_vel(double angle, double max_speed, int rate) {
@@ -173,6 +194,7 @@ void handleGotoFace() {
   geometry_msgs::PoseStamped goal;
   goal.header.frame_id = "map"; goal.header.stamp = ros::Time().now(); goal.header.seq = GOAL_ID++;
   goal.pose = curr_face->approach;
+  ROS_INFO("GOTO FACE POSE %s", poseToString(goal.pose).c_str());
   goal_pub.publish(goal);
   STATE = APPROACH_FACE;
 }
@@ -184,26 +206,32 @@ void handleApproachFace() {
     no_rotations = 0;
     // Valid face - move to
     geometry_msgs::Pose *recent = &std::get<2>(recent_face);
+    sendDebug(*recent, "camera_rgb_frame");
     double angle_to_target = atan2(recent->position.y, recent->position.x);
     double distance_to_target = sqrt(pow(recent->position.x, 2) + pow(recent->position.y, 2));
-    if(angle_to_target > MAX_APPROACH_ANGLE) {
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE) {
       // Rotate
+      ROS_INFO("ROTATE");
       double ang_vel = get_ang_vel(angle_to_target, 0.5, ROS_RATE);
       velocity_pub.publish(getTwist(0, ang_vel));
-      double dang = ang_vel * (1.0 / (double)ROS_RATE);
+      double dang = -ang_vel * (1.0 / (double)ROS_RATE);
       recent->position.x = cos(angle_to_target + dang) * distance_to_target;
       recent->position.y = sin(angle_to_target + dang) * distance_to_target;
-    } else if(distance_to_target > MAX_APPROACH_DISTANCE) {
+    } else if(abs(distance_to_target) > MAX_APPROACH_DISTANCE) {
       // Move forward
+      ROS_INFO("FORWARD %f %f", distance_to_target, MAX_APPROACH_DISTANCE);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
       velocity_pub.publish(getTwist(lin_vel, 0));
       double dlin = lin_vel * (1.0 / (double)ROS_RATE);
       recent->position.x -= dlin;
     } else {
       // Stop
+      ROS_INFO("STOP");
       velocity_pub.publish(getTwist(0, 0));
       STATE = INTERACT_FACE;
     }
+    // ROS_INFO("%s", poseToString(*recent).c_str());
+    ROS_INFO("Approach %f m, %f deg", distance_to_target, angle_to_target * M_PI / 180.0);
   } else {
     // Invalid face - rotate w/ pose and cluster loc
     actionlib_msgs::GoalStatus st = std::get<1>(goal_status);
@@ -309,7 +337,10 @@ void faceCallback(const finale::FaceClusteringToHub::ConstPtr &face_msg) {
         }
       }
     }
-    for(int i = 0; i < no_new; i++) if(curr_face != NULL && curr_face->id == face_msg->inCamera[i].id) recent_face = std::tuple<ros::Time, int, geometry_msgs::Pose>(face_msg->stamp, face_msg->inCamera[i].id, face_msg->inCamera[i].pose);
+    for(int i = 0; i < no_new; i++) if(curr_face != NULL && curr_face->id == face_msg->inCamera[i].id) {
+      // ROS_INFO("INCAMERA %s", poseToString(face_msg->inCamera[i].pose).c_str());
+      recent_face = std::tuple<ros::Time, int, geometry_msgs::Pose>(face_msg->stamp, face_msg->inCamera[i].id, face_msg->inCamera[i].pose);
+    }
   }
 }
 
@@ -323,17 +354,18 @@ void ringCallback() {
 
 void goalCallback(const actionlib_msgs::GoalStatusArray::ConstPtr &msg) {
   // TODO fix states not working correctly
-  ROS_INFO("Goal Array length %d", (int)msg->status_list.size());
-  goal_status = std::tuple<ros::Time, actionlib_msgs::GoalStatus>(msg->header.stamp, msg->status_list[0]);
+  if(msg->status_list.size() > 0) goal_status = std::tuple<ros::Time, actionlib_msgs::GoalStatus>(msg->header.stamp, msg->status_list[0]);
 }
 
 int main(int argc, char** argv) {
 
     srand(time(NULL));
 
-    ros::init(argc, argv, "auto_goals");
+    ros::init(argc, argv, "move_it2");
     ros::NodeHandle nh;
     n = &nh;
+
+    std::get<1>(recent_face) = -1; std::get<1>(recent_cyl) = -1; std::get<1>(recent_ring) = -1; 
 
     ros::Subscriber map_sub = nh.subscribe("map", 10, mapCallback);
     ros::Subscriber est_pose_sub = nh.subscribe("amcl_pose", 100, poseCallback);
@@ -355,38 +387,38 @@ int main(int argc, char** argv) {
     ros::Rate rate(ROS_RATE);
     ROS_INFO("Waiting for map and pose");
     while(ros::ok()) {
+      ROS_INFO("%d", STATE);
       if(got_map && got_pose) {
-          ROS_INFO("Got map and pose");
-          switch(STATE) {
-            case STOPPED: handleStopped();
-            break;
-            case WANDERING: handleWandering();
-            break;
-            case GOTO_FACE: handleGotoFace();
-            break;
-            case APPROACH_FACE: handleApproachFace();
-            break;
-            case INTERACT_FACE: handleInteractFace();
-            break;
-            case GOTO_CYLINDER: handleGotoCylinder();
-            break;
-            case APPROACH_CYLINDER: handleApproachCylinder();
-            break;
-            case INTERACT_CYLINDER: handleInteractCylinder();
-            break;
-            case GOTO_RING: handleGotoRing();
-            break;
-            case APPROACH_RING: handleApproachRing();
-            break;
-            case INTERACT_RING: handleInteractRing();
-            break;
-            case GOTO_DELIVERY: handleGotoDelivery();
-            break;
-            case APPROACH_DELIVERY: handleApproachDelivery();
-            break;
-            case DELIVER: handleDeliver();
-            break;
-          }
+        switch(STATE) {
+          case STOPPED: handleStopped();
+          break;
+          case WANDERING: handleWandering();
+          break;
+          case GOTO_FACE: handleGotoFace();
+          break;
+          case APPROACH_FACE: handleApproachFace();
+          break;
+          case INTERACT_FACE: handleInteractFace();
+          break;
+          case GOTO_CYLINDER: handleGotoCylinder();
+          break;
+          case APPROACH_CYLINDER: handleApproachCylinder();
+          break;
+          case INTERACT_CYLINDER: handleInteractCylinder();
+          break;
+          case GOTO_RING: handleGotoRing();
+          break;
+          case APPROACH_RING: handleApproachRing();
+          break;
+          case INTERACT_RING: handleInteractRing();
+          break;
+          case GOTO_DELIVERY: handleGotoDelivery();
+          break;
+          case APPROACH_DELIVERY: handleApproachDelivery();
+          break;
+          case DELIVER: handleDeliver();
+          break;
+        }
       }
       rate.sleep();
       ros::spinOnce();

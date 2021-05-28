@@ -10,6 +10,8 @@
     <param name="min_det" value="2" type="int" />
   </node>
 
+  <node pkg="finale" type="move_it2" name="move_it" output="screen" />
+
   <node pkg="sound_play" type="soundplay_node.py" name="soundplay" />
 
 </launch>
