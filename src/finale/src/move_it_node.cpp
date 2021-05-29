@@ -26,6 +26,8 @@
 #include "finale/FaceCluster.h"
 #include "finale/ClusterInCamera.h"
 #include "finale/FaceClusteringToHub.h"
+#include "finale/ToggleQRNumService.h"
+#include "finale/QRNumDataToHub.h"
 
 #define ROS_RATE 10
 #define LIFO false
@@ -33,7 +35,8 @@
 #define SAFETY_RADIUS 0.3
 #define MAX_TIME_DIFF 1.0
 #define MAX_APPROACH_ANGLE 5.0 * M_PI / 180.0
-#define MAX_APPROACH_DISTANCE 0.6
+#define MAX_APPROACH_DISTANCE 0.7
+#define MIN_APPROACH_DISTANCE 0.5
 #define MAX_SEARCH_ROTATIONS 10
 
 typedef std::tuple<int, int> facedata;
@@ -53,6 +56,7 @@ geometry_msgs::TransformStamped map_transform;
 ros::Publisher goal_pub;
 ros::Publisher goal_cancel_pub;
 ros::Publisher velocity_pub;
+ros::Publisher qrnum_pub;
 ros::Publisher debug_point_pub;
 
 bool got_map = false, got_pose = false;
@@ -76,6 +80,8 @@ std::tuple<ros::Time, int, geometry_msgs::Pose> recent_face;
 std::tuple<ros::Time, int, geometry_msgs::Pose> recent_cyl;
 std::tuple<ros::Time, int, geometry_msgs::Pose> recent_ring;
 std::tuple<ros::Time, actionlib_msgs::GoalStatus> goal_status;
+std::tuple<ros::Time, std::string> recent_qr;
+std::tuple<ros::Time, int, int> recent_num;
 
 template<typename T>
 void add_to_list(T &el, std::list<T*> &list) {
@@ -164,7 +170,6 @@ float get_angle(double a_cos, double a_sin) {
 
 bool check_valid_position(int x, int y) {
     // ROS_INFO("map at x:%d,y:%d %d", x, y, map[y * map_width + x]);
-
     if(map[y * map_width + x] != 0) return false;
 
     float angle_inc = (2 * M_PI / NO_RADIUS_CHECKS);
@@ -196,6 +201,8 @@ void handleGotoFace() {
   goal.pose = curr_face->approach;
   ROS_INFO("GOTO FACE POSE %s", poseToString(goal.pose).c_str());
   goal_pub.publish(goal);
+  finale::ToggleQRNumService tqr; tqr.what = tqr.BOTH; tqr.to = true;
+  qrnum_pub.publish(tqr);
   STATE = APPROACH_FACE;
 }
 int no_rotations = 0;
@@ -221,6 +228,13 @@ void handleApproachFace() {
       // Move forward
       ROS_INFO("FORWARD %f %f", distance_to_target, MAX_APPROACH_DISTANCE);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
+      velocity_pub.publish(getTwist(lin_vel, 0));
+      double dlin = lin_vel * (1.0 / (double)ROS_RATE);
+      recent->position.x -= dlin;
+    } else if(abs(distance_to_target) < MIN_APPROACH_DISTANCE) {
+      // Move backward
+      ROS_INFO("BACKWARD %f %f", distance_to_target, MIN_APPROACH_DISTANCE);
+      double lin_vel = -0.1;
       velocity_pub.publish(getTwist(lin_vel, 0));
       double dlin = lin_vel * (1.0 / (double)ROS_RATE);
       recent->position.x -= dlin;
@@ -256,10 +270,14 @@ void handleApproachFace() {
 void handleInteractFace() {
 
   curr_face == NULL;
+  finale::ToggleQRNumService tqr; tqr.what = tqr.BOTH; tqr.to = false;
+  qrnum_pub.publish(tqr);
   STATE = getState();
 }
 void handleGotoCylinder() {
 
+  finale::ToggleQRNumService tqr; tqr.what = tqr.QR; tqr.to = true;
+  qrnum_pub.publish(tqr);
   STATE = APPROACH_CYLINDER;
 }
 void handleApproachCylinder() {
@@ -268,6 +286,8 @@ void handleApproachCylinder() {
 }
 void handleInteractCylinder() {
 
+  finale::ToggleQRNumService tqr; tqr.what = tqr.QR; tqr.to = false;
+  qrnum_pub.publish(tqr);
   STATE = getState();
 }
 void handleGotoRing() {
@@ -352,6 +372,16 @@ void ringCallback() {
 
 }
 
+void qrCallback(const finale::QRNumDataToHub::ConstPtr &msg) {
+  ROS_INFO("QR data %s", msg->data.c_str());
+  recent_qr = std::tuple<ros::Time, std::string>(msg->stamp, msg->data);
+}
+
+void numCallback(const finale::QRNumDataToHub::ConstPtr &msg) {
+  ROS_INFO("Num data %s", msg->data.c_str());
+  recent_num = std::tuple<ros::Time, int, int>(msg->stamp, msg->data.at(0), msg->data.at(1));
+}
+
 void goalCallback(const actionlib_msgs::GoalStatusArray::ConstPtr &msg) {
   // TODO fix states not working correctly
   if(msg->status_list.size() > 0) goal_status = std::tuple<ros::Time, actionlib_msgs::GoalStatus>(msg->header.stamp, msg->status_list[0]);
@@ -373,12 +403,15 @@ int main(int argc, char** argv) {
     ros::Subscriber face_detection_sub = nh.subscribe("finale/faces", 10, faceCallback);
     // ros::Subscriber cylinder_detection_sub = nh.subscribe("finale/cylinders", 10, cylinderCallback);
     // ros::Subscriber ring_detection_sub = nh.subscribe("finale/rings", 10, ringCallback);
+    ros::Subscriber qr_detection_sub = nh.subscribe("finale/qr_data", 100, qrCallback);
+    ros::Subscriber num_detection_sub = nh.subscribe("finale/number_data", 100, numCallback);
 
     goal_pub = nh.advertise<geometry_msgs::PoseStamped>("move_base_simple/goal", 10);
     velocity_pub = nh.advertise<geometry_msgs::Twist>("mobile_base/commands/velocity", 10);
     goal_cancel_pub = nh.advertise<actionlib_msgs::GoalID>("move_base/cancel", 10);
+    qrnum_pub = nh.advertise<finale::ToggleQRNumService>("finale/toggle_num", 100);
     //
-    debug_point_pub = nh.advertise<visualization_msgs::Marker>("check_point", 1000);
+    debug_point_pub = nh.advertise<visualization_msgs::Marker>("check_point", 100);
     //
 
     ROS_INFO("Waiting for goal subscriber");

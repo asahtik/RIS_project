@@ -42,7 +42,7 @@ class QRExtractor:
         # Subscribe to the image and/or depth topic
         self.image_sub = rospy.Subscriber("camera/rgb/image_raw", Image, self.image_callback)
         self.toggle_sub = rospy.Subscriber("finale/toggle_num", ToggleQRNumService, self.toggle_callback)
-        self.data_pub = rospy.Publisher('finale/qr_data', QRNumDataToHub, queue_size=100)
+        self.data_pub = rospy.Publisher("finale/qr_data", QRNumDataToHub, queue_size=100)
         self.is_active = False
 
     def toggle_callback(self, data):
