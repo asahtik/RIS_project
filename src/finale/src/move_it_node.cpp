@@ -42,8 +42,8 @@
 #define MAX_SEARCH_ROTATIONS 10
 
 typedef std::tuple<int, int> facedata;
-typedef std::vector<unsigned int> cyldata;
-typedef std::vector<unsigned int> ringdata;
+typedef unsigned int cyldata;
+typedef unsigned int ringdata;
 
 enum {STOPPED, WANDERING, GOTO_FACE, APPROACH_FACE, INTERACT_FACE, GOTO_CYLINDER, APPROACH_CYLINDER, INTERACT_CYLINDER, GOTO_RING, APPROACH_RING, INTERACT_RING, GOTO_DELIVERY, APPROACH_DELIVERY, DELIVER} state;
 enum {RED, BLUE, YELLOW, GREEN, BLACK} colours;
@@ -459,7 +459,10 @@ void cylinderCallback(const finale::CylClusteringToHub::ConstPtr &msg) {
           //
         } else {
           // Update data
-          cl->update(ccl);
+          // TODO Classify colour
+          unsigned int clr = RED;
+          //
+          cl->update(ccl, clr);
         }
       }
     }

@@ -1,8 +1,0 @@
-<launch>
-    <param name="use_sim_time" value="true" />
-    <!-- move around -->
-    <node name="move_around" pkg="hw4" type="move_around"/>
-    <!-- localize faces -->
-    <node name="face_localizer" pkg="hw4" type="face_localizer"/>
-
-</launch>

@@ -1,7 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <!-- <node pkg="exercise6" type="classify_colour_service.py" name="colour" output="screen" /> -->
-  <node pkg="exercise6" type="find_cylinders" name="cylinders" output="screen" />
-  <node pkg="exercise6" type="find_rings" name="rings" output="screen" />
-  <node pkg="exercise5" type="auto_goals" name="move" output="screen" />
-</launch>

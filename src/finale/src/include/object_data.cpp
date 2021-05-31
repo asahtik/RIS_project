@@ -52,14 +52,14 @@ struct data_t {
     this->approach = fcl.approach;
   }
 
-  void update(finale::CylCluster &ccl) {
+  void update(finale::CylCluster &ccl, unsigned int colour) {
     this->x = ccl.x;
     this->y = ccl.y;
     this->cos = ccl.cos;
     this->sin = ccl.sin;
     this->detections = ccl.detections;
     this->approach = ccl.approach;
-    if(std::is_same<T, std::vector<double>>::value) this->data = ccl.data;
+    if(std::is_same<T, unsigned int>::value) this->data = colour;
   }
 };
 
