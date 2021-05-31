@@ -1,3 +1,3 @@
-CylCluster[] faces
+CylCluster[] cyls
 ClusterInCamera[] inCamera
 time stamp

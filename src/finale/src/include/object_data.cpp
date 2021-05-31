@@ -1,5 +1,6 @@
 #include "geometry_msgs/Pose.h"
 #include "finale/FaceCluster.h"
+#include "finale/CylCluster.h"
 
 #include <math.h>
 #include <iostream>
@@ -25,6 +26,23 @@ struct data_t {
     this-> approach = approach;
   }
 
+  double find_nearest(std::list<data_t<T>> &ls) {
+    if(ls.size() == 1) return -1.0;
+    double min_d = -1.0;
+    data_t<T> *min = NULL;
+    for(typename std::list<data_t<T>>::iterator it = ls.begin(); it != ls.end(); ++it) {
+      if(this->id != it->id) {
+        double dist = sqrt(pow(this->x - it->x, 2) + pow(this->y - it->y, 2));
+        if(min_d < 0.0 || dist < min_d) {
+          min_d = dist;
+          min = &*it;
+        }
+      }
+    }
+    // if(save_closest) closest = min;
+    return min_d;
+  }
+
   void update(finale::FaceCluster &fcl) {
     this->x = fcl.x;
     this->y = fcl.y;
@@ -32,6 +50,16 @@ struct data_t {
     this->sin = fcl.sin;
     this->detections = fcl.detections;
     this->approach = fcl.approach;
+  }
+
+  void update(finale::CylCluster &ccl) {
+    this->x = ccl.x;
+    this->y = ccl.y;
+    this->cos = ccl.cos;
+    this->sin = ccl.sin;
+    this->detections = ccl.detections;
+    this->approach = ccl.approach;
+    if(std::is_same<T, std::vector<double>>::value) this->data = ccl.data;
   }
 };
 

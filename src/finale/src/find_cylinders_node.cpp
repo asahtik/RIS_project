@@ -34,7 +34,7 @@
 #define LEAF_SIZE 0.01f
 #define PLANE_ITERATIONS 1000
 #define PLANE_THRESHOLD 0.01f
-#define REMAINING_POINTS_PERCENTAGE 0.1f
+#define REMAINING_POINTS_PERCENTAGE 0.15f
 #define REMOVED_POINTS_PERCENTAGE 0.1f
 #define NORMAL_K_NEIGHBOURS 50
 #define CYLINDER_WEIGHT 0.1f
@@ -105,7 +105,7 @@ int toHubMsg(ros::Time stamp, std::list<clustering2d::cluster_t<cyldata>>& fs, s
     t.data = std::get<0>(f.data);
     t.approach = std::get<2>(f.data);
     if(t.detections >= mind) {
-      out.faces.push_back(t);
+      out.cyls.push_back(t);
       no++;
     }
   }
@@ -346,7 +346,7 @@ int main (int argc, char** argv)
   pubPlan = nh.advertise<pcl::PCLPointCloud2> ("planes", 1);
   pubCyl = nh.advertise<sensor_msgs::PointCloud2> ("exercise6/cylinder_cloud", 1);
   marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/cylinder_markers", 1000);
-  cylinder_msg_pub = nh.advertise<finale::CylClusteringToHub>("finale/cylinder_clustering", 1000);
+  cylinder_msg_pub = nh.advertise<finale::CylClusteringToHub>("finale/cylinders", 1000);
 
   // Spin
   ros::Rate rate(1);

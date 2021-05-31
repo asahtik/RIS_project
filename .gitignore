@@ -2,3 +2,10 @@ devel
 build
 .vscode
 __pycache__
+src/clustering
+src/exercise4
+src/exercise5
+src/exercise6
+src/exercise7
+src/exercise8
+src/hw4

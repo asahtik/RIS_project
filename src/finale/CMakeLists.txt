@@ -12,7 +12,6 @@ find_package(Boost REQUIRED COMPONENTS system filesystem thread)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(clustering)
 
 ## Find catkin packages
 find_package(catkin REQUIRED COMPONENTS
@@ -24,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_conversions
   pcl_msgs
   pluginlib
+  resource_retriever
   rosbag
   rosconsole
   roscpp
@@ -34,7 +34,6 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   tf2_ros
   tf2_geometry_msgs
-  clustering
 )
 
 ## System dependencies are found with CMake's conventions
@@ -83,12 +82,11 @@ add_message_files(
   CylClusteringToHub.msg
 )
 
-## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
+# Generate services in the 'srv' folder
+add_service_files(
+  FILES
+  DownloadText.srv
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
