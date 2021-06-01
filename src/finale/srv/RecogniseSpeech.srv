@@ -1,0 +1,18 @@
+uint8 Q1 = 0
+uint8 Q2 = 1
+
+uint8 question
+bool askAge
+---
+uint8 NO = 0
+uint8 YES = 1
+
+uint8 RED = 0
+uint8 GREEN = 1
+uint8 BLUE = 2
+uint8 YELLOW = 3
+
+uint8 exercise
+uint8 colour
+uint8 confirm
+uint8 age

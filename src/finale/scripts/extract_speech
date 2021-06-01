@@ -3,12 +3,103 @@
 import roslib
 import time
 import rospy
-
+import re
 import speech_recognition as sr
 
+from finale.srv import RecogniseSpeech, RecogniseSpeechResponse
 
+USE_MICROPHONE = False
+
+confirmation = ["no", "yes"]
+clinics = ["red", "green", "blue", "yellow"]
+numbers = [["0", "zero", "no", "oh"], ["1", "one", "single"], ["2", "two"], ["3", "three", "tree"], ["4", "four", "for"], ["5", "five"], ["6", "six"], ["7", "seven"], ["8", "eight", "ate"], ["9", "nine"]]
+questions = ["Have you been vaccinated?", "Who is your personal doctor?", "How many hours per day do you exercise?", "Here is your vaccine, can I vaccinate you?", "How old are you?"]
 
 class SpeechTranscriber:
+    def match_in_string(self, sentence, list):
+        matches = []
+        i = 0
+        for l in list:
+            if type(l) == str:
+                if len(re.findall(l, sentence, re.I)) > 0:
+                    matches.append(i)
+            else:
+                for l2 in l:
+                    if len(re.findall(l2, sentence, re.I)) > 0:
+                        matches.append(i)
+            i = i + 1
+
+        return matches
+
+
+    def process_sentence(self, sent):
+        if self.sentence == 0:
+            self.data = []
+            # Have you been vaccinated?
+            match = self.match_in_string(sent, confirmation)
+            if len(match) == 1:
+                self.data.append(match[0])
+                self.sentence = self.sentence + 1
+        elif self.sentence == 1:
+            # Who is your personal doctor?
+            match = self.match_in_string(sent, clinics)
+            if len(match) == 1:
+                self.data.append(match[0])
+                self.sentence = self.sentence + 1
+        elif self.sentence == 2:
+            # How many hours per day do you exercise?
+            match = self.match_in_string(sent, numbers)
+            if len(match) == 1:
+                self.data.append(match[0])
+                self.sentence = 10
+        elif self.sentence == 3:
+            self.data = []
+            # Here is your vaccine, can I vaccinate you?
+            match = self.match_in_string(sent, confirmation)
+            if len(match) == 1:
+                self.data.append(match[0])
+                self.sentence = 11
+
+
+    def recognize_speech(self):
+        print(questions[self.sentence])
+        if USE_MICROPHONE:
+            with self.mic as source:
+                print('Adjusting mic for ambient noise...')
+                self.sr.adjust_for_ambient_noise(source)
+                print('SPEAK NOW!')
+                audio = self.sr.listen(source)
+            
+            print('I am now processing the sounds you made.')
+            recognized_text = ''
+            try:
+                recognized_text = self.sr.recognize_google(audio)
+                self.process_sentence(recognized_text)
+            except sr.RequestError as e:
+                print('API is probably unavailable', e)
+            except sr.UnknownValueError:
+                print('Did not manage to recognize anything.')
+        else:
+            x = input()
+            self.process_sentence(x)
+
+
+    def callback(self, req):
+        self.sentence = 0 if req.question == 0 else 3
+        self.data = []
+        age = -1
+        if req.askAge:
+            print(questions[-1])
+            age = input()
+        while self.sentence < 10:
+            self.recognize_speech()
+
+        if req.question == RecogniseSpeech._request_class.Q1:
+            return RecogniseSpeechResponse(confirm=self.data[0], colour=self.data[1], exercise=self.data[2], age=age)
+        else:
+            return RecogniseSpeechResponse(confirm=self.data[0])
+
+
     def __init__(self):
         rospy.init_node('speech_transcriber', anonymous=True)
         
@@ -30,34 +121,20 @@ class SpeechTranscriber:
         
         # An interface to the default microphone
         self.mic = sr.Microphone()
-        
+        self.sentence = 0
+        self.data = []
+
+        s = rospy.Service("finale/speech_service", RecogniseSpeech, self.callback)
+        rospy.spin()
         # You can get the list of available devices: sr.Microphone.list_microphone_names()
     # You can set the fault microphone like this: self. mic = sr.Microphone(device_index=3)
     # where the device_index is the position in the list from the first command.
-
-    def recognize_speech(self):
-        with self.mic as source:
-            print('Adjusting mic for ambient noise...')
-            self.sr.adjust_for_ambient_noise(source)
-            print('SPEAK NOW!')
-            audio = self.sr.listen(source)
-           
-        print('I am now processing the sounds you made.')
-        recognized_text = ''
-        try:
-            recognized_text = self.sr.recognize_google(audio)
-        except sr.RequestError as e:
-            print('API is probably unavailable', e)
-        except sr.UnknownValueError:
-            print('Did not manage to recognize anything.')
-            
-        return recognized_text
 
 
 if __name__ == '__main__':
     
     st = SpeechTranscriber()
-    
+    # TODO set sentence and reset data
     while not rospy.is_shutdown():
         text = st.recognize_speech()
         print('I recognized this sentence:', text)

@@ -80,12 +80,15 @@ add_message_files(
   QRNumDataToHub.msg
   CylCluster.msg
   CylClusteringToHub.msg
+  RingCluster.msg
+  RingClusteringToHub.msg
 )
 
 # Generate services in the 'srv' folder
 add_service_files(
   FILES
   DownloadText.srv
+  RecogniseSpeech.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -190,6 +193,7 @@ link_libraries(${Boost_LIBRARIES} ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 # add_executable(${PROJECT_NAME}_node src/finale_node.cpp)
 add_executable(face_clustering2 src/face_clustering_node.cpp)
 add_executable(find_cylinders2 src/find_cylinders_node.cpp)
+add_executable(find_rings2 src/find_rings_node.cpp)
 add_executable(move_it2 src/move_it_node.cpp)
 
 ## Rename C++ executable without prefix
@@ -203,6 +207,7 @@ add_executable(move_it2 src/move_it_node.cpp)
 # add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 add_dependencies(face_clustering2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 add_dependencies(find_cylinders2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(find_rings2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 add_dependencies(move_it2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against

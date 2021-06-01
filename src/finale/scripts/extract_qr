@@ -29,8 +29,7 @@ print(params.adaptiveThreshWinSizeStep)
 
 # You can set these parameters to get better marker detections
 params.adaptiveThreshConstant = 25
-adaptiveThreshWinSizeStep = 2
-
+params.adaptiveThreshWinSizeStep = 2
 
 class QRExtractor:
     def __init__(self):
@@ -51,8 +50,8 @@ class QRExtractor:
 
     def image_callback(self,data):
         # print('Iam here!')
-        if not self.is_active:
-            return
+        # if not self.is_active:
+        #     return
 
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -60,7 +59,11 @@ class QRExtractor:
             print(e)
                     
             # Find a QR code in the image
-        decodedObjects = pyzbar.decode(cv_image)
+        cv_image2 = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+        cv_thresholded = cv2.adaptiveThreshold(cv_image2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5)
+        cv2.imshow('Warped image',cv_thresholded)
+        cv2.waitKey(1)
+        decodedObjects = pyzbar.decode(cv_thresholded)
         
         #print(decodedObjects)
         

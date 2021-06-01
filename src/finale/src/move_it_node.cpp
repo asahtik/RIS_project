@@ -28,8 +28,11 @@
 #include "finale/FaceClusteringToHub.h"
 #include "finale/CylCluster.h"
 #include "finale/CylClusteringToHub.h"
+#include "finale/RingCluster.h"
+#include "finale/RingClusteringToHub.h"
 #include "finale/ToggleQRNumService.h"
 #include "finale/QRNumDataToHub.h"
+#include "finale/RecogniseSpeech.h"
 
 #define ROS_RATE 10
 #define LIFO false
@@ -41,9 +44,11 @@
 #define MIN_APPROACH_DISTANCE 0.5
 #define MAX_SEARCH_ROTATIONS 10
 
+// Age, Exercise
 typedef std::tuple<int, int> facedata;
-typedef unsigned int cyldata;
-typedef unsigned int ringdata;
+// Colour, person
+typedef std::tuple<unsigned int, data_t<facedata>*> cyldata;
+typedef std::tuple<unsigned int, data_t<facedata>*> ringdata;
 
 enum {STOPPED, WANDERING, GOTO_FACE, APPROACH_FACE, INTERACT_FACE, GOTO_CYLINDER, APPROACH_CYLINDER, INTERACT_CYLINDER, GOTO_RING, APPROACH_RING, INTERACT_RING, GOTO_DELIVERY, APPROACH_DELIVERY, DELIVER} state;
 enum {RED, BLUE, YELLOW, GREEN, BLACK} colours;
@@ -61,6 +66,8 @@ ros::Publisher goal_cancel_pub;
 ros::Publisher velocity_pub;
 ros::Publisher qrnum_pub;
 ros::Publisher debug_point_pub;
+ros::Publisher marker_pub;
+ros::ServiceClient conv_client;
 
 bool got_map = false, got_pose = false;
 int map_width = 0, map_height = 0;
@@ -109,6 +116,7 @@ void sendDebug(geometry_msgs::Pose &p, const char *frame) {
   m.action = m.ADD;
   debug_point_pub.publish(m);
 }
+void sendMarkers();
 template<typename T>
 T* pop_from_list(std::list<T*> &list, bool lifo = false) {
   if(lifo) {
@@ -272,14 +280,31 @@ void handleApproachFace() {
   }
 }
 void handleInteractFace() {
-  // TODO
-  // TODO if no appropriate cylinders found add to request
-
-
-  curr_face == NULL;
   finale::ToggleQRNumService tqr; tqr.what = tqr.BOTH; tqr.to = false;
   qrnum_pub.publish(tqr);
-  STATE = getState();
+  finale::RecogniseSpeech srv; srv.request.question = srv.request.Q1;
+  if((std::get<0>(recent_num) - ros::Time::now()).toSec() < 2.0 * MAX_TIME_DIFF) {
+    int x1 = std::get<1>(recent_num), x2 = std::get<2>(recent_num);
+    std::get<0>(curr_face->data) = x1 * 10 + x2;
+  }
+  srv.request.askAge = std::get<0>(curr_face->data) < 0;
+  if(conv_client.call(srv)) {
+    data_t<cyldata> *cl = findByColour(srv.response.colour, cylinders);
+    if(cl != NULL) {
+      // Already found cylinder
+      std::get<1>(curr_face->data) = srv.response.exercise;
+      if(srv.request.askAge) std::get<0>(curr_face->data) = srv.response.age;
+      std::get<1>(cl->data) = curr_face;
+      cyl_list.push_back(cl);
+    } else {
+      // Cylinder not yet found
+      cyl_requests.push_back(srv.response.colour);
+    }
+    curr_face == NULL;
+    STATE = getState();
+  } else {
+    ROS_WARN("Service call unsuccessful");
+  }
 }
 void handleGotoCylinder() {
   curr_cyl = pop_from_list(cyl_list, LIFO);
@@ -300,7 +325,7 @@ void handleApproachCylinder() {
     // Valid cylinder - move to
     geometry_msgs::Pose *recent = &std::get<2>(recent_cyl);
     sendDebug(*recent, "camera_rgb_frame");
-    double angle_to_target = atan2(recent->position.y, recent->position.x);
+    double angle_to_target = atan2(recent->position.y, recent->position.x) * 2.0; // Should it be *2 ?
     double distance_to_target = sqrt(pow(recent->position.x, 2) + pow(recent->position.y, 2));
     if(abs(angle_to_target) > MAX_APPROACH_ANGLE) {
       // Rotate
@@ -356,18 +381,75 @@ void handleApproachCylinder() {
 void handleInteractCylinder() {
   // TODO
   // TODO if no appropriate rings found add to request
-
+  
   finale::ToggleQRNumService tqr; tqr.what = tqr.QR; tqr.to = false;
   qrnum_pub.publish(tqr);
   STATE = getState();
 }
 void handleGotoRing() {
-  
+  curr_ring = pop_from_list(ring_list, LIFO);
+  goal_cancel_pub.publish(actionlib_msgs::GoalID());
+  geometry_msgs::PoseStamped goal;
+  goal.header.frame_id = "map"; goal.header.stamp = ros::Time().now(); goal.header.seq = GOAL_ID++;
+  goal.pose = curr_ring->approach;
+  ROS_INFO("GOTO RING POSE %s", poseToString(goal.pose).c_str());
+  goal_pub.publish(goal);
   STATE = APPROACH_RING;
 }
 void handleApproachRing() {
-
-  STATE = INTERACT_RING;
+  if(std::get<1>(recent_ring) == curr_ring->id && (std::get<0>(recent_ring) - ros::Time::now()).toSec() <= MAX_TIME_DIFF) {
+    goal_cancel_pub.publish(actionlib_msgs::GoalID());
+    no_rotations = 0;
+    // Valid ring - move to
+    geometry_msgs::Pose *recent = &std::get<2>(recent_ring);
+    sendDebug(*recent, "camera_rgb_frame");
+    double angle_to_target = atan2(recent->position.y, recent->position.x) * 2.0; // Should it be *2 ?
+    double distance_to_target = sqrt(pow(recent->position.x, 2) + pow(recent->position.y, 2));
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE) {
+      // Rotate
+      ROS_INFO("ROTATE");
+      double ang_vel = get_ang_vel(angle_to_target, 0.5, ROS_RATE);
+      velocity_pub.publish(getTwist(0, ang_vel));
+      double dang = -ang_vel * (1.0 / (double)ROS_RATE);
+      recent->position.x = cos(angle_to_target + dang) * distance_to_target;
+      recent->position.y = sin(angle_to_target + dang) * distance_to_target;
+      std::get<0>(recent_ring) = ros::Time::now();
+    } else if(abs(distance_to_target) > 0.1) {
+      // Move forward
+      ROS_INFO("FORWARD %f %f", distance_to_target, 0.1);
+      double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
+      velocity_pub.publish(getTwist(lin_vel, 0));
+      double dlin = lin_vel * (1.0 / (double)ROS_RATE);
+      recent->position.x -= dlin;
+      std::get<0>(recent_ring) = ros::Time::now();
+    } else {
+      // Stop
+      ROS_INFO("STOP");
+      velocity_pub.publish(getTwist(0, 0));
+      STATE = INTERACT_RING;
+    }
+    // ROS_INFO("%s", poseToString(*recent).c_str());
+    ROS_INFO("Approach %f m, %f deg", distance_to_target, angle_to_target * M_PI / 180.0);
+  } else {
+    // Invalid cylinder - rotate w/ pose and cluster loc
+    actionlib_msgs::GoalStatus st = std::get<1>(goal_status);
+    if(st.status == st.SUCCEEDED || st.status == st.PREEMPTED) {
+      if(no_rotations == 0) {
+        geometry_msgs::Pose p = std::get<1>(recent_pose);
+        double fvec[2] = {-p.position.x + curr_cyl->x, -p.position.y + curr_cyl->y};
+        double pvec[2] = {p.orientation.w, p.orientation.z};
+        double cosang = (fvec[0] * pvec[0] + fvec[1] * pvec[1]) / (sqrt(pow(fvec[0], 2) + pow(fvec[1], 2)) * sqrt(pow(pvec[0], 2) + pow(pvec[1], 2)));
+        velocity_pub.publish(getTwist(0, 0.2 * (abs(cosang) / cosang)));
+        no_rotations++;
+      } else if(no_rotations > MAX_SEARCH_ROTATIONS) {
+        // Try again later
+        no_rotations = 0;
+        add_to_end(*curr_cyl, cyl_list, LIFO);
+        STATE = getState();
+        if(cyl_list.size() == 1) STATE = WANDERING;
+      } else no_rotations++;
+    } 
+  }
 }
 void handleInteractRing() {
 
@@ -449,10 +531,10 @@ void cylinderCallback(const finale::CylClusteringToHub::ConstPtr &msg) {
           unsigned int clr = RED;
           //
           // Add cluster
-          cylinders.push_back(data_t<cyldata>(ccl.id, ccl.x, ccl.y, ccl.cos, ccl.sin, ccl.detections, ccl.status, cyldata(clr), ccl.approach));
+          cylinders.push_back(data_t<cyldata>(ccl.id, ccl.x, ccl.y, ccl.cos, ccl.sin, ccl.detections, ccl.status, cyldata(clr, NULL), ccl.approach));
           for(std::list<unsigned int>::iterator it = cyl_requests.begin(); it != cyl_requests.end(); ++it) if(*it == clr) {
-            cyl_requests.erase(it);
             add_to_list<data_t<cyldata>>(cylinders.back(), cyl_list);
+            cyl_requests.erase(it);
           }
           // TODO add to list after interact
           add_to_list<data_t<cyldata>>(cylinders.back(), cyl_list); // temp
@@ -462,19 +544,53 @@ void cylinderCallback(const finale::CylClusteringToHub::ConstPtr &msg) {
           // TODO Classify colour
           unsigned int clr = RED;
           //
-          cl->update(ccl, clr);
+          cl->update(ccl, cyldata(clr, std::get<1>(cl->data)));
         }
       }
     }
-    for(int i = 0; i < no_new; i++) if(curr_face != NULL && curr_face->id == msg->inCamera[i].id) {
+    for(int i = 0; i < no_new; i++) if(curr_cyl != NULL && curr_cyl->id == msg->inCamera[i].id) {
       // ROS_INFO("INCAMERA %s", poseToString(face_msg->inCamera[i].pose).c_str());
       recent_cyl = std::tuple<ros::Time, int, geometry_msgs::Pose>(msg->stamp, msg->inCamera[i].id, msg->inCamera[i].pose);
     }
   }
 }
 
-void ringCallback() {
-  // TODO
+void ringCallback(const finale::RingClusteringToHub::ConstPtr &msg) {
+  int no_new = msg->inCamera.size();
+  if(no_new != 0) {
+    for(int i = 0; i < msg->rings.size(); i++) {
+      for(int j = 0; j < no_new; j++) if(msg->rings[i].id == msg->inCamera[j].id) {
+        // Freshly detected cluster
+        data_t<ringdata> *cl = findById(msg->rings[i].id, rings);
+        finale::RingCluster ccl = msg->rings[i];
+
+        if(cl == NULL) {
+          // TODO Classify colour
+          unsigned int clr = RED;
+          //
+          // Add cluster
+          rings.push_back(data_t<ringdata>(ccl.id, ccl.x, ccl.y, ccl.cos, ccl.sin, ccl.detections, ccl.status, ringdata(clr, NULL), ccl.approach));
+          for(std::list<unsigned int>::iterator it = ring_requests.begin(); it != ring_requests.end(); ++it) if(*it == clr) {
+            ring_requests.erase(it);
+            add_to_list<data_t<ringdata>>(rings.back(), ring_list);
+          }
+          // TODO add to list after interact
+          add_to_list<data_t<ringdata>>(rings.back(), ring_list); // temp
+          //
+        } else {
+          // Update data
+          // TODO Classify colour
+          unsigned int clr = RED;
+          //
+          cl->update(ccl, ringdata(clr, std::get<1>(cl->data)));
+        }
+      }
+    }
+    for(int i = 0; i < no_new; i++) if(curr_ring != NULL && curr_ring->id == msg->inCamera[i].id) {
+      // ROS_INFO("INCAMERA %s", poseToString(face_msg->inCamera[i].pose).c_str());
+      recent_ring = std::tuple<ros::Time, int, geometry_msgs::Pose>(msg->stamp, msg->inCamera[i].id, msg->inCamera[i].pose);
+    }
+  }
 }
 
 void qrCallback(const finale::QRNumDataToHub::ConstPtr &msg) {
@@ -507,14 +623,17 @@ int main(int argc, char** argv) {
     ros::Subscriber goal_sub = nh.subscribe("move_base/status", 100, goalCallback);
     ros::Subscriber face_detection_sub = nh.subscribe("finale/faces", 10, faceCallback);
     ros::Subscriber cylinder_detection_sub = nh.subscribe("finale/cylinders", 10, cylinderCallback);
-    // ros::Subscriber ring_detection_sub = nh.subscribe("finale/rings", 10, ringCallback);
+    ros::Subscriber ring_detection_sub = nh.subscribe("finale/rings", 10, ringCallback);
     ros::Subscriber qr_detection_sub = nh.subscribe("finale/qr_data", 100, qrCallback);
     ros::Subscriber num_detection_sub = nh.subscribe("finale/number_data", 100, numCallback);
+    
+    conv_client = nh.serviceClient<finale::RecogniseSpeech>("finale/speech_service");
 
     goal_pub = nh.advertise<geometry_msgs::PoseStamped>("move_base_simple/goal", 10);
     velocity_pub = nh.advertise<geometry_msgs::Twist>("mobile_base/commands/velocity", 10);
     goal_cancel_pub = nh.advertise<actionlib_msgs::GoalID>("move_base/cancel", 10);
     qrnum_pub = nh.advertise<finale::ToggleQRNumService>("finale/toggle_num", 100);
+    marker_pub = nh.advertise<visualization_msgs::MarkerArray>("finale/face_markers", 100);
     //
     debug_point_pub = nh.advertise<visualization_msgs::Marker>("check_point", 100);
     //
@@ -525,6 +644,7 @@ int main(int argc, char** argv) {
     ros::Rate rate(ROS_RATE);
     ROS_INFO("Waiting for map and pose");
     while(ros::ok()) {
+      if((faces.size() + rings.size() + cylinders.size()) > 0) sendMarkers();
       ROS_INFO("%d", STATE);
       if(got_map && got_pose) {
         switch(STATE) {
@@ -563,4 +683,51 @@ int main(int argc, char** argv) {
     }
     return 0;
 
+}
+
+void sendMarkers() {
+  visualization_msgs::MarkerArray marr;
+  for(std::list<data_t<facedata>>::iterator it = faces.begin(); it != faces.end(); ++it) {
+    visualization_msgs::Marker m;
+    geometry_msgs::Pose p; p.position.x = it->x; p.position.y = it->y; p.position.z = 0.2; p.orientation.w = 1.0;
+    m.ns = "faces";
+    m.id = it->id;
+    m.header.frame_id = "map";
+    m.header.stamp = ros::Time::now();
+    m.pose = p;
+    m.type = visualization_msgs::Marker::SPHERE;
+    m.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+    m.color.a = 1.0; m.color.g = 1.0;
+    marr.markers.push_back(m);
+  }
+  for(std::list<data_t<ringdata>>::iterator it = rings.begin(); it != rings.end(); ++it) {
+    visualization_msgs::Marker m;
+    geometry_msgs::Pose p; p.position.x = it->x; p.position.y = it->y; p.position.z = 0.2; p.orientation.w = 1.0;
+    m.ns = "faces";
+    m.id = it->id;
+    m.header.frame_id = "map";
+    m.header.stamp = ros::Time::now();
+    m.pose = p;
+    m.type = visualization_msgs::Marker::SPHERE;
+    m.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+    m.color.a = 1.0; m.color.b = 1.0;
+    marr.markers.push_back(m);
+  }
+  for(std::list<data_t<cyldata>>::iterator it = cylinders.begin(); it != cylinders.end(); ++it) {
+    visualization_msgs::Marker m;
+    geometry_msgs::Pose p; p.position.x = it->x; p.position.y = it->y; p.position.z = 0.2; p.orientation.w = 1.0;
+    m.ns = "faces";
+    m.id = it->id;
+    m.header.frame_id = "map";
+    m.header.stamp = ros::Time::now();
+    m.pose = p;
+    m.type = visualization_msgs::Marker::SPHERE;
+    m.action = visualization_msgs::Marker::ADD;
+    m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+    m.color.a = 1.0; m.color.g = 0.5; m.color.r = 0.5;
+    marr.markers.push_back(m);
+  }
+  marker_pub.publish(marr);
 }

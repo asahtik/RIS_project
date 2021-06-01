@@ -26,9 +26,15 @@ print(params.adaptiveThreshWinSizeStep)
 # https://docs.opencv.org/3.3.1/d1/dcd/structcv_1_1aruco_1_1DetectorParameters.html
 
 # You can set these parameters to get better marker detections
+# params.adaptiveThreshWinSizeMin = 2
 params.adaptiveThreshConstant = 25
-adaptiveThreshWinSizeStep = 2
-
+params.adaptiveThreshWinSizeStep = 1
+# params.adaptiveThreshWinSizeMin = 20
+# params.polygonalApproxAccuracyRate = 0.07
+# params.minMarkerPerimeterRate = 0.01
+# params.minCornerDistanceRate = 0.02
+# params.minMarkerDistanceRate = 0.02
+# params.maxErroneousBitsInBorderRate = 0.4
 
 class DigitExtractor:
     def __init__(self):
@@ -38,7 +44,7 @@ class DigitExtractor:
         self.bridge = CvBridge()
 
         # Subscribe to the image and/or depth topic
-        self.image_sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.image_callback)
+        self.image_sub = rospy.Subscriber("camera/rgb/image_raw", Image, self.image_callback)
         self.toggle_sub = rospy.Subscriber("finale/toggle_num", ToggleQRNumService, self.toggle_callback)
         self.data_pub = rospy.Publisher("finale/number_data", QRNumDataToHub, queue_size=100)
         self.is_active = False
@@ -48,9 +54,8 @@ class DigitExtractor:
             self.is_active = data.to
 
     def image_callback(self,data):
-        # print('Iam here!')
-        if not self.is_active:
-            return
+        # if not self.is_active:
+        #     return
 
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -58,9 +63,14 @@ class DigitExtractor:
             print(e)
             
         print("Will try to process the image...")
+        height, width, ch = cv_image.shape
+        cv_image = cv_image[0:height, 0:round(width/2.0)]
 
         corners, ids, rejected_corners = cv2.aruco.detectMarkers(cv_image,dictm,parameters=params)
-        
+        # print(rejected_corners)
+        cv2.aruco.drawDetectedMarkers(cv_image, corners)
+        cv2.imshow('Warped image', cv_image)
+        cv2.waitKey(1)
         # Increase proportionally if you want a larger image
         image_size=(351,248,3)
         marker_side=50

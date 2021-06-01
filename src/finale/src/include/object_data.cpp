@@ -1,9 +1,12 @@
 #include "geometry_msgs/Pose.h"
 #include "finale/FaceCluster.h"
 #include "finale/CylCluster.h"
+#include "finale/RingCluster.h"
 
 #include <math.h>
 #include <iostream>
+
+typedef std::tuple<int, int> facedata;
 
 template<typename T>
 struct data_t {
@@ -51,21 +54,38 @@ struct data_t {
     this->detections = fcl.detections;
     this->approach = fcl.approach;
   }
-
-  void update(finale::CylCluster &ccl, unsigned int colour) {
+  void update(finale::CylCluster &ccl, const std::tuple<unsigned int, data_t<facedata>*> &data) {
     this->x = ccl.x;
     this->y = ccl.y;
     this->cos = ccl.cos;
     this->sin = ccl.sin;
     this->detections = ccl.detections;
     this->approach = ccl.approach;
-    if(std::is_same<T, unsigned int>::value) this->data = colour;
+    if(std::is_same<T, std::tuple<unsigned int, data_t<facedata>*>>::value) this->data = data;
+  }
+  void update(finale::RingCluster &ccl, const std::tuple<unsigned int, data_t<facedata>*> &data) {
+    this->x = ccl.x;
+    this->y = ccl.y;
+    this->cos = ccl.cos;
+    this->sin = ccl.sin;
+    this->detections = ccl.detections;
+    this->approach = ccl.approach;
+    if(std::is_same<T, std::tuple<unsigned int, data_t<facedata>*>>::value) this->data = data;
   }
 };
 
 template<typename T>
 data_t<T> *findById(int id, std::list<data_t<T>> ls) {
-    for(typename std::list<data_t<T>>::iterator it = ls.begin(); it != ls.end(); ++it)
-      if(it->id == id) return &*it;
-    return NULL;
+  for(typename std::list<data_t<T>>::iterator it = ls.begin(); it != ls.end(); ++it)
+    if(it->id == id) return &*it;
+  return NULL;
+}
+template<typename T>
+data_t<T> *findByColour(unsigned int clr, std::list<data_t<T>> &ls) {
+  if(!std::is_same<T, std::tuple<unsigned int, data_t<facedata>*>>::value) return NULL;
+  data_t<T> *cl = NULL;
+  for(typename std::list<data_t<T>>::iterator it = ls.begin(); it != ls.end(); ++it) {
+    if(std::get<0>(it->data) == clr) return &*it;
   }
+  return NULL;
+}
