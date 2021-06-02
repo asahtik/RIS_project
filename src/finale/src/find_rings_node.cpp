@@ -6,6 +6,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <cv_bridge/rgb_colors.h>
 #include <geometry_msgs/Pose.h>
+#include <visualization_msgs/Marker.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -20,8 +21,8 @@
 
 #include <math.h>
 
-#define RATE 2
-#define MIN_DETECTIONS 1
+#define RATE 2.0
+#define MIN_DETECTIONS 2
 #define IMG_H_P 0.5
 #define CONTOUR_SIZE 20
 #define ELIPSE_MAX_CENTER_DISTANCE 3.0
@@ -38,16 +39,11 @@
 typedef std::tuple<std::vector<double>, int, geometry_msgs::Pose> ringdata;
 typedef cv::Point3_<uint8_t> Pixel;
 
-class tf2_buf {
-  public:
-  tf2_ros::Buffer buffer;
-  tf2_ros::TransformListener *tfListener;
-  void initialise() {
-    tfListener = new tf2_ros::TransformListener(buffer);
-  }
-} tfBuf;
+tf2_ros::Buffer tfBuffer;
+tf2_ros::TransformListener* tfListener;
 
 ros::Publisher ring_msg_pub;
+ros::Publisher debug_point_pub;
 // ros::ServiceClient colour_client;
 
 ringdata joinf(const clustering2d::cluster_t<ringdata> &a, const clustering2d::cluster_t<ringdata> &b) {
@@ -83,6 +79,30 @@ int toHubMsg(ros::Time stamp, std::list<clustering2d::cluster_t<ringdata>>& fs, 
     }
   }
   return no;
+}
+
+std::string vectorToString(std::vector<double> &hs) {
+  std::stringstream ss;
+  for(std::vector<double>::iterator it = hs.begin(); it != hs.end(); ++it) {
+    ss << *it;
+    if(it + 1 != hs.end()) ss << ",";
+  }
+  return ss.str();
+}
+
+void sendDebug(geometry_msgs::Point &p, const char *frame, const char *ns) {
+  visualization_msgs::Marker m;
+  m.ns = ns;
+  m.header.frame_id = frame;
+  m.header.stamp = ros::Time::now();
+  m.id = 0;
+  m.pose.position = p;
+  m.pose.orientation.w = 1.0;
+  m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+  m.type = m.SPHERE;
+  m.color.a = 1.0; m.color.r = 1.0;
+  m.action = m.ADD;
+  debug_point_pub.publish(m);
 }
 
 // Adapted from https://answers.opencv.org/question/20521/how-do-i-get-the-goodness-of-fit-for-the-result-of-fitellipse/
@@ -224,12 +244,12 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
     
     // Get angles from sensor to bounding box corners
     int k_f = 554;
-    float x1_d = x1 - width / 2.0, y1_d = y1 - height / 2.0, x2_d = x2 - width / 2.0, y2_d = y2 - height / 2.0;
+    float x1_d = width / 2.0 - x1, y1_d = height / 2.0 - y1, x2_d = width / 2.0 - x2, y2_d = height / 2.0 - y2;
     float h_angle_x1 = atan2(x1_d, k_f), h_angle_x2 = atan2(x2_d, k_f);
     float v_angle_y1 = atan2(y1_d, k_f), v_angle_y2 = atan2(y2_d, k_f);
 
-    float angle_to_target = (h_angle_x1 + h_angle_x2) / 2.0, h_angle_to_target = -(v_angle_y1 + v_angle_y2) / 2.0;
-    ROS_INFO("Angles %f %f", angle_to_target, h_angle_to_target);
+    float angle_to_target = atan2(width/2.0 - (x1+x2)/2.0, k_f), h_angle_to_target = atan2(height/2.0 - (y1+y2)/2.0, k_f);
+    // ROS_INFO("Angles %f %f", angle_to_target, h_angle_to_target);
     
     cv::Rect ROI2(x1, y1, x2 - x1, y2 - y1);
     cv::Mat depth_bw = cv_bw(ROI2), depth_bw2;
@@ -240,9 +260,9 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
 
     // depth_img.convertTo(depth_temp, CV_8UC1, 255.0 / (max_depth_v - min_depth_v), -min_depth_v);
     // cv::imshow("Depth", depth_temp);
-    // int asg = cv::waitKey();
-    // cv::imshow("RGB", rgb_img);
-    // asg = cv::waitKey();
+    // int asgs = cv::waitKey();
+    cv::imshow("RGB", rgb_img);
+    int asg = cv::waitKey(1);
 
     // Build a color histogram
     std::vector<double> clr_hist(NO_COLORS + 2);
@@ -262,7 +282,7 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
     });
     double min_depth_v2, max_depth_v2; 
     cv::minMaxLoc(depth_img, &min_depth_v2, &max_depth_v2);
-    ROS_INFO("Min, max in depth image: %f, %f", min_depth_v2, max_depth_v2);
+    // ROS_INFO("Min, max in depth image: %f, %f", min_depth_v2, max_depth_v2);
     // Get distance to ring
     float sum = 0.0; int no = 0;
     depth_img.forEach<float>([&](float &point, const int *position) {
@@ -272,7 +292,7 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
       }
     });
     float distance_to_target = sum / (float)no;
-    ROS_INFO("Ring distance %f", distance_to_target);
+    // ROS_INFO("Ring distance %f", distance_to_target);
 
     // Normalise colour histogram
     if(no_clrs == 0) continue;
@@ -282,23 +302,28 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
 
     // std::cout << toString(clr_hist, NO_COLORS + 2) << std::endl;
     geometry_msgs::PointStamped optical;
-    optical.header.frame_id = "camera_depth_frame";
+    optical.header.frame_id = "camera_depth_optical_frame";
     optical.header.stamp = depth_msg->header.stamp;
-    optical.point.x = distance_to_target * cos(angle_to_target);
-    optical.point.y = distance_to_target * sin(angle_to_target);
-    optical.point.z = distance_to_target * sin(h_angle_to_target);
-    geometry_msgs::PoseStamped curr_pose_null, pose; curr_pose_null.header = optical.header; 
+    optical.point.x = -distance_to_target * sin(angle_to_target);
+    optical.point.y = -distance_to_target * sin(h_angle_to_target);
+    optical.point.z = distance_to_target * cos(angle_to_target);
+    // sendDebug(optical.point, "camera_depth_optical_frame", "camera");
+    geometry_msgs::TransformStamped transform;
+    geometry_msgs::PoseStamped curr_pose_null, pose; curr_pose_null.header = optical.header; curr_pose_null.pose.orientation.w = cos(M_PI / 4.0); curr_pose_null.pose.orientation.y = sin(M_PI / 4.0);
     geometry_msgs::PointStamped map;
     map.header.frame_id = "map";
     map.header.stamp = depth_msg->header.stamp;
     pose.header = map.header;
+    // ROS_WARN("Point in camera %f %f %f", optical.point.x, optical.point.y, optical.point.z);
     try {
-      geometry_msgs::TransformStamped transform = tfBuf.buffer.lookupTransform("camera_depth_frame", "map", depth_msg->header.stamp);
+      transform = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_msg->header.stamp);
       tf2::doTransform(optical, map, transform);
       tf2::doTransform(curr_pose_null, pose, transform);
+      pose.pose.position.z = 1.0;
+      // ROS_WARN("Point in map %f %f %f", map.point.x, map.point.y, map.point.z);
       geometry_msgs::Pose ring_pose; ring_pose.position = map.point; ring_pose.orientation.w = 1.0;
       geometry_msgs::Pose inCamera_pose; inCamera_pose.position = optical.point; inCamera_pose.orientation.w = cos(angle_to_target / 2.0); inCamera_pose.orientation.z = sin(angle_to_target / 2.0); // Should it be /2 ?
-
+      // sendDebug(map.point, "map", "map");
       clustering2d::cluster_t<ringdata> *cluster = clustering2d::cluster_t<ringdata>::getCluster(ring_pose, 0, ringdata(clr_hist, no_clrs, pose.pose), joinf);
       if(cluster != NULL) {
         ring_c.push_front(*cluster);
@@ -329,11 +354,14 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "find_rings2");
   ros::NodeHandle nh;
 
-  tfBuf.initialise();
+  tfListener = new tf2_ros::TransformListener(tfBuffer);
 
   // colour_client = nh.serviceClient<exercise6::RecogniseColour>("exercise6/recognise_colour");
 
   ring_msg_pub = nh.advertise<finale::RingClusteringToHub>("finale/rings", 100);
+  //
+  debug_point_pub = nh.advertise<visualization_msgs::Marker>("debug/ring", 100);
+  //
 
   message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "camera/rgb/image_raw", 1);
   message_filters::Subscriber<sensor_msgs::Image> depth_sub (nh, "camera/depth/image_raw", 1);

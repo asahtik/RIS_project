@@ -1,0 +1,7 @@
+<launch>
+  <node pkg="finale" type="prepoznaj_barvo_cilindrov.py" name="cyl_colour" output="log" />
+  <node pkg="finale" type="prepoznaj_barvo_ringov.py" name="ring_colour" output="log" />
+  <node pkg="finale" type="katera_cepiva.py" name="katera_cepiva" output="log" />
+  <node pkg="finale" type="extract_qr" name="qr" output="log" />
+  <node pkg="finale" type="extract_digits" name="digits" output="log" />
+</launch>

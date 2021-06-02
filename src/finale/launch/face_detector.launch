@@ -1,17 +1,19 @@
 <launch>
 
-  <node pkg="finale" type="face_detection.py" name="face_localizer" output="screen">
-    <param name="proto_loc" value="$(find exercise4)/scripts/" type="string" />
+  <node pkg="finale" type="face_detection.py" name="face_localizer" output="log">
+    <param name="proto_loc" value="$(find finale)/scripts/" type="string" />
   </node>
 
-  <!-- <node pkg="finale" type="face_clustering2" name="face_clustering" output="screen">
+  <node pkg="finale" type="face_clustering2" name="face_clustering" output="log">
     <param name="min_dist" value="0.5" type="double" />
     <param name="max_angle" value="1.6" type="double" />
     <param name="min_det" value="2" type="int" />
   </node>
 
-  <node pkg="finale" type="move_it2" name="move_it" output="screen" />
- -->
-  <node pkg="sound_play" type="soundplay_node.py" name="soundplay" />
+  <node pkg="finale" type="find_cylinders2" name="find_cylinders" output="log" />
+
+  <node pkg="finale" type="find_rings2" name="find_rings" output="log" />
+
+  <node pkg="sound_play" type="soundplay_node.py" name="soundplay" output="log" />
 
 </launch>

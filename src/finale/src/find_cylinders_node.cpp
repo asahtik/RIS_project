@@ -30,7 +30,7 @@
 #include "include/clustering2d_lib.cpp"
 
 #define MIN_Z 0.1
-#define MAX_Z 1.5
+#define MAX_Z 2.0
 #define LEAF_SIZE 0.01f
 #define PLANE_ITERATIONS 1000
 #define PLANE_THRESHOLD 0.01f
@@ -46,7 +46,7 @@
 #define CYLINDER_POINTS_RATIO 0.08
 #define MIN_Y -0.1
 #define RATE 2.0
-#define MIN_DETECTIONS 1
+#define MIN_DETECTIONS 2
 #define NO_COLORS 16 // do not change
 #define MIN_SATURATION 0.01
 #define MIN_VALUE 0.01
@@ -276,13 +276,15 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
 
 	  //Create a point in the "camera_rgb_optical_frame"
     geometry_msgs::PointStamped point_camera;
-    geometry_msgs::PoseStamped pose_camera; pose_camera.header.frame_id = "camera_depth_optical_frame"; pose_camera.header.stamp = depth_blob->header.stamp;
+    geometry_msgs::PoseStamped pose_null;
     geometry_msgs::PointStamped point_map;
     geometry_msgs::PoseStamped pose_map;
     geometry_msgs::TransformStamped tss;
           
     point_camera.header.frame_id = "camera_depth_optical_frame";
     point_camera.header.stamp = depth_blob->header.stamp;
+    pose_null.header = point_camera.header; pose_null.pose.orientation.w = cos(M_PI / 2.0); pose_null.pose.orientation.y = sin(M_PI / 2.0);
+    pose_map.header.stamp = depth_blob->header.stamp; pose_map.header.frame_id = "map";
 
 	  point_map.header.frame_id = "map";
     point_map.header.stamp = depth_blob->header.stamp;
@@ -294,7 +296,8 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
 	  try {
       tss = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_blob->header.stamp);
       tf2::doTransform(point_camera, point_map, tss);
-      tf2::doTransform(pose_camera, pose_map, tss);
+      tf2::doTransform(pose_null, pose_map, tss);
+      pose_map.pose.position.z = 0.0;
       // tfBuffer.transform<geometry_msgs::PointStamped>(point_camera, point_map, "map", ros::Duration(0.1));
       // std::cerr << "point_camera: " << point_camera.point.x << " " <<  point_camera.point.y << " " <<  point_camera.point.z << std::endl;
       // std::cerr << "point_map: " << point_map.point.x << " " <<  point_map.point.y << " " <<  point_map.point.z << std::endl;
@@ -344,8 +347,8 @@ int main (int argc, char** argv)
 
   // Create a ROS publisher for the output point cloud
   pubPlan = nh.advertise<pcl::PCLPointCloud2> ("planes", 1);
-  pubCyl = nh.advertise<sensor_msgs::PointCloud2> ("exercise6/cylinder_cloud", 1);
-  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("exercise6/cylinder_markers", 1000);
+  pubCyl = nh.advertise<sensor_msgs::PointCloud2> ("finale/cylinder_cloud", 1);
+  // marker_pub = nh.advertise<visualization_msgs::MarkerArray>("finale/markers", 1000);
   cylinder_msg_pub = nh.advertise<finale::CylClusteringToHub>("finale/cylinders", 1000);
 
   // Spin

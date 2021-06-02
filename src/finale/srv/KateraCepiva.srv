@@ -1,0 +1,5 @@
+string url
+float32 prvaStevilka
+float32 drugaStevilka
+---
+string cepivo

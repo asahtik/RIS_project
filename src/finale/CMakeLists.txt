@@ -82,6 +82,7 @@ add_message_files(
   CylClusteringToHub.msg
   RingCluster.msg
   RingClusteringToHub.msg
+  WanderControl.msg
 )
 
 # Generate services in the 'srv' folder
@@ -89,6 +90,9 @@ add_service_files(
   FILES
   DownloadText.srv
   RecogniseSpeech.srv
+  BarvaCilindrov.srv
+  BarvaRingov.srv
+  KateraCepiva.srv
 )
 
 ## Generate actions in the 'action' folder

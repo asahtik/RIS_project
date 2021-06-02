@@ -26,7 +26,7 @@ struct data_t {
     this->id = id;
     this->status = status;
     this->data = data;
-    this-> approach = approach;
+    this->approach = approach;
   }
 
   double find_nearest(std::list<data_t<T>> &ls) {
@@ -54,23 +54,21 @@ struct data_t {
     this->detections = fcl.detections;
     this->approach = fcl.approach;
   }
-  void update(finale::CylCluster &ccl, const std::tuple<unsigned int, data_t<facedata>*> &data) {
+  void update(finale::CylCluster &ccl) {
     this->x = ccl.x;
     this->y = ccl.y;
     this->cos = ccl.cos;
     this->sin = ccl.sin;
     this->detections = ccl.detections;
     this->approach = ccl.approach;
-    if(std::is_same<T, std::tuple<unsigned int, data_t<facedata>*>>::value) this->data = data;
   }
-  void update(finale::RingCluster &ccl, const std::tuple<unsigned int, data_t<facedata>*> &data) {
+  void update(finale::RingCluster &ccl) {
     this->x = ccl.x;
     this->y = ccl.y;
     this->cos = ccl.cos;
     this->sin = ccl.sin;
     this->detections = ccl.detections;
     this->approach = ccl.approach;
-    if(std::is_same<T, std::tuple<unsigned int, data_t<facedata>*>>::value) this->data = data;
   }
 };
 

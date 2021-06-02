@@ -94,17 +94,23 @@ class face_localizer:
         pose_s.header.frame_id = "camera_rgb_frame"
         pose_s.header.stamp = stamp
 
+        pose_null = PoseStamped()
+        pose_null.header = pose_s.header
+        pose_null.pose.orientation.w = 1.0
+
         # Get the point in the "map" coordinate system
         try:
             # point_world = self.tf_buf.transform(point_s, "map")
             transform = self.tf_buf.lookup_transform("map", pose_s.header.frame_id, rospy.Time(0), rospy.Duration(0.5))
             pose = tf2_geometry_msgs.do_transform_pose(pose_s, transform)
+            apprch_pose = tf2_geometry_msgs.do_transform_pose(pose_null, transform)
             # print(pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w)
         except Exception as e:
             print(e)
             pose = None
+            apprch_pose = None
 
-        return (pose, pose_s, angle_to_target)
+        return (pose, pose_s, angle_to_target, apprch_pose)
     
 
     def find_faces(self):
@@ -158,6 +164,7 @@ class face_localizer:
         pose_array = []
         camera_pose_array = []
         angle_array = []
+        apprch_array = []
 
         for i in range(0, face_detections.shape[2]):
             confidence = face_detections[0, 0, i, 2]
@@ -182,12 +189,13 @@ class face_localizer:
                 depth_time = depth_image_message.header.stamp
 
                 # Find the location of the detected face
-                (pose, pose_s, angle) = self.get_pose((x1,x2,y1,y2), face_distance, depth_time)
+                (pose, pose_s, angle, apprch_pose) = self.get_pose((x1,x2,y1,y2), face_distance, depth_time)
 
                 if pose is not None:
                     pose_array.append(pose.pose)
                     camera_pose_array.append(pose_s.pose)
                     angle_array.append(angle)
+                    apprch_array.append(apprch_pose.pose)
 
         data = FaceDetectorToClustering()
         data.angles = angle_array
@@ -195,6 +203,8 @@ class face_localizer:
         data.inCamera.poses = camera_pose_array
         data.faces.header.stamp = depth_image_message.header.stamp
         data.faces.poses = pose_array
+        data.approaches.header.stamp = depth_image_message.header.stamp
+        data.approaches.poses = apprch_array
         self.markers_pub.publish(data)
 
     def depth_callback(self,data):
@@ -220,7 +230,7 @@ class face_localizer:
 def main():
         face_finder = face_localizer()
         rospy.loginfo("Initialized DNN node")
-        rate = rospy.Rate(0.5)
+        rate = rospy.Rate(1.0)
         while not rospy.is_shutdown():
             face_finder.find_faces()
             rate.sleep()

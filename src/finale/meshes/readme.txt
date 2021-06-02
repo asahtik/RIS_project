@@ -1,0 +1,1 @@
+There are two version of the same polygon with only one difference. You should use only one, as you choose. The only difference is: in the rins_task2_final2 model, some white space has been added around the aruco markers.

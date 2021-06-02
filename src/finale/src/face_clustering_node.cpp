@@ -28,7 +28,7 @@ sound_play::SoundClient *sc;
 ros::Publisher marker_pub;
 
 double min_dist, max_angle;
-int min_det, max_unvisited = 1;
+int min_det = 2, max_unvisited = 1;
 
 approachp joinf(const clustering2d::cluster_t<approachp> &a, const clustering2d::cluster_t<approachp> &b) {
   if(abs(std::get<0>(a.data)) < abs(std::get<0>(b.data))) return a.data;
@@ -90,6 +90,7 @@ void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) 
   std::vector<geometry_msgs::Pose> fcs = posearr->faces.poses;
   std::vector<geometry_msgs::Pose> inCamera = posearr->inCamera.poses;
   std::vector<float> angls = posearr->angles;
+  std::vector<geometry_msgs::Pose> apprchs = posearr->approaches.poses;
   
   assert(fcs.size() == inCamera.size() && inCamera.size() == angls.size());
 
@@ -97,8 +98,7 @@ void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) 
   new_clusters.resize(size);
 
   for(int i = 0; i < size; i++) {
-    geometry_msgs::Pose aprch;
-    clustering2d::cluster_t<approachp> *cluster = clustering2d::cluster_t<approachp>::getCluster(fcs[i], 0, approachp(angls[i], aprch), &joinf);
+    clustering2d::cluster_t<approachp> *cluster = clustering2d::cluster_t<approachp>::getCluster(fcs[i], 0, approachp(angls[i], apprchs[i]), &joinf);
     if(cluster != NULL) {
       new_clusters[i] = cluster->id;
       faces.push_front(*cluster);
@@ -119,18 +119,18 @@ void cluster_markers(const finale::FaceDetectorToClustering::ConstPtr &posearr) 
     for(int i : new2_clusters) if(i == ncl) {isNew = false; break;}
     if(isNew) {
       new2_clusters.push_back(ncl);
-      clustering2d::cluster_t<approachp> *nearestcl = clustering2d::find_by_id(faces, ncl);
-      double dist = nearestcl->get_closest(faces);
-      if(dist >= 0.0) {
-        if(dist < SAFETY_DISTANCE) {
-          if(nearestcl-> status < 1) {
-            ROS_INFO("Saying: %s", s.c_str());
-            sc->stopSaying(s);
-            sc->say(s);
-          }
-          nearestcl->status = 1;
-        }
-      }
+      // clustering2d::cluster_t<approachp> *nearestcl = clustering2d::find_by_id(faces, ncl);
+      // double dist = nearestcl->get_closest(faces);
+      // if(dist >= 0.0) {
+      //   if(dist < SAFETY_DISTANCE) {
+      //     if(nearestcl-> status < 1) {
+      //       ROS_INFO("Saying: %s", s.c_str());
+      //       sc->stopSaying(s);
+      //       sc->say(s);
+      //     }
+      //     nearestcl->status = 1;
+      //   }
+      // }
     } else {}
   }
   // filter by # detections and transform to msg

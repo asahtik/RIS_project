@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="finale" type="move_it2" name="move_it" output="screen" />
+  <node pkg="finale" type="moving.py" name="moving" output="log" />
+</launch>

@@ -5,6 +5,8 @@ import time
 import rospy
 import re
 import speech_recognition as sr
+from sound_play.msg import SoundRequest
+from sound_play.libsoundplay import SoundClient
 
 from finale.srv import RecogniseSpeech, RecogniseSpeechResponse
 
@@ -62,6 +64,7 @@ class SpeechTranscriber:
 
 
     def recognize_speech(self):
+        self.sc.say(questions[self.sentence])
         print(questions[self.sentence])
         if USE_MICROPHONE:
             with self.mic as source:
@@ -89,11 +92,12 @@ class SpeechTranscriber:
         self.data = []
         age = -1
         if req.askAge:
+            self.sc.say(questions[-1])
             print(questions[-1])
-            age = input()
+            age = int(input())
         while self.sentence < 10:
             self.recognize_speech()
-
+        print(self.data)
         if req.question == RecogniseSpeech._request_class.Q1:
             return RecogniseSpeechResponse(confirm=self.data[0], colour=self.data[1], exercise=self.data[2], age=age)
         else:
@@ -101,12 +105,13 @@ class SpeechTranscriber:
 
 
     def __init__(self):
-        rospy.init_node('speech_transcriber', anonymous=True)
+        rospy.init_node('extract_speech', anonymous=True)
         
         # The documentation is here: https://github.com/Uberi/speech_recognition
 
         # The main interface to the speech recognition engines
         self.sr = sr.Recognizer()
+        self.sc = SoundClient()
         
         # These are the methods that are available to us for recognition.
         # Please note that most of them use an internet connection and currently they are using

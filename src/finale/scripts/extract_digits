@@ -69,8 +69,8 @@ class DigitExtractor:
         corners, ids, rejected_corners = cv2.aruco.detectMarkers(cv_image,dictm,parameters=params)
         # print(rejected_corners)
         cv2.aruco.drawDetectedMarkers(cv_image, corners)
-        cv2.imshow('Warped image', cv_image)
-        cv2.waitKey(1)
+        # cv2.imshow('Warped image', cv_image)
+        # cv2.waitKey(1)
         # Increase proportionally if you want a larger image
         image_size=(351,248,3)
         marker_side=50
@@ -132,8 +132,8 @@ class DigitExtractor:
                 config = '--psm 13 outputbase nobatch digits'
                 
                 # Visualize the image we are passing to Tesseract
-                cv2.imshow('Warped image',img_out)
-                cv2.waitKey(1)
+                # cv2.imshow('Warped image',img_out)
+                # cv2.waitKey(1)
             
                 # Extract text from image
                 text = pytesseract.image_to_string(img_out, config = config)

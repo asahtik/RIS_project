@@ -50,8 +50,8 @@ class QRExtractor:
 
     def image_callback(self,data):
         # print('Iam here!')
-        # if not self.is_active:
-        #     return
+        if not self.is_active:
+            return
 
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -61,8 +61,8 @@ class QRExtractor:
             # Find a QR code in the image
         cv_image2 = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
         cv_thresholded = cv2.adaptiveThreshold(cv_image2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5)
-        cv2.imshow('Warped image',cv_thresholded)
-        cv2.waitKey(1)
+        # cv2.imshow('Warped image',cv_thresholded)
+        # cv2.waitKey(1)
         decodedObjects = pyzbar.decode(cv_thresholded)
         
         #print(decodedObjects)
@@ -93,8 +93,8 @@ class QRExtractor:
             for j in range(0,n):
                 cv2.line(cv_image, hull[j], hull[ (j+1) % n], (0,255,0), 2)
                 
-            cv2.imshow('Warped image',cv_image)
-            cv2.waitKey(1)
+            # cv2.imshow('Warped image',cv_image)
+            # cv2.waitKey(1)
                 
         elif len(decodedObjects)==0:
             print("No QR code in the image")
