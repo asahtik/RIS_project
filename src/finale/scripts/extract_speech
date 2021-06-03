@@ -14,7 +14,7 @@ USE_MICROPHONE = False
 
 confirmation = ["no", "yes"]
 clinics = ["red", "green", "blue", "yellow"]
-numbers = [["0", "zero", "no", "oh"], ["1", "one", "single"], ["2", "two"], ["3", "three", "tree"], ["4", "four", "for"], ["5", "five"], ["6", "six"], ["7", "seven"], ["8", "eight", "ate"], ["9", "nine"]]
+numbers = [["0", "zero", "no", "oh"], ["1", "one", "single"], ["2", "two"], ["3", "three", "tree"], ["4", "four", "for"], ["5", "five"], ["6", "six"], ["7", "seven"], ["8", "eight", "ate"], ["9", "nine"], ["10", "ten"], ["11", "eleven"], ["12", "twelve"]]
 questions = ["Have you been vaccinated?", "Who is your personal doctor?", "How many hours per day do you exercise?", "Here is your vaccine, can I vaccinate you?", "How old are you?"]
 
 class SpeechTranscriber:

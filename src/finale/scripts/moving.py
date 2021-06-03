@@ -8,7 +8,7 @@ from time import sleep
 from finale.msg import WanderControl
 import math
 
-drive = True
+drive = False
 
 def callback_laser(dt):
 
@@ -28,6 +28,7 @@ def callback_laser(dt):
       desno = 2
 
 def callback_toggle(tg):
+  global drive 
   drive = tg.wander
       
 def vozi():
@@ -63,14 +64,14 @@ def vozi():
           if levo > desno:
             while levo < thr or sredina < thr or desno < 1:
               move.linear.x = 0.0
-              move.angular.z = 0.2
+              move.angular.z = 0.3
               pub.publish(move)
               print('Obstacle! Turning left.')
               rate.sleep()
           else:
             while levo < 1 or sredina < thr or desno < thr:
               move.linear.x = 0.0
-              move.angular.z = -0.2
+              move.angular.z = -0.3
               pub.publish(move)
               print('Obstacle! Turning right.')
               rate.sleep()

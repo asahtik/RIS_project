@@ -43,16 +43,17 @@
 
 #define ROS_RATE 10
 #define LIFO false
-#define NO_RADIUS_CHECKS 50
+#define NO_RADIUS_CHECKS 100
 #define SAFETY_RADIUS 0.3
 #define MAX_TIME_DIFF 1.0
 #define MAX_APPROACH_ANGLE 5.0 * M_PI / 180.0
 #define MAX_APPROACH_DISTANCE 0.5
 #define MIN_APPROACH_DISTANCE 0.3
-#define MAX_SEARCH_ROTATIONS 10
+#define MAX_SEARCH_ROTATIONS 50
 #define PERSONAL_SPACE 1.0
-#define LASER_ANGLE 10.0 * M_PI / 180.0
-#define APPROACH_OBSTACLE_DIFF 0.1
+#define LASER_ANGLE 5.0 * M_PI / 180.0
+#define APPROACH_OBSTACLE_DIFF 0.2
+#define CLEAR_FORWARD_ITERATIONS 10
 
 // Age, Exercise
 typedef std::tuple<int, int> facedata;
@@ -128,7 +129,7 @@ void sendDebug(geometry_msgs::Pose &p, const char *frame, const char *ns) {
   m.lifetime = ros::Duration(5);
   m.id = 0;
   m.pose = p;
-  m.scale.x = 0.1; m.scale.y = 0.1; m.scale.z = 0.1;
+  m.scale.x = 0.3; m.scale.y = 0.05; m.scale.z = 0.05;
   m.type = m.SPHERE;
   m.color.a = 1.0; m.color.r = 1.0;
   m.action = m.ADD;
@@ -202,13 +203,13 @@ bool check_approach(double dist, double &ang_vel, double max_speed, int rate) {
   float left = std::get<0>(recent_ranges), center = std::get<1>(recent_ranges), right = std::get<2>(recent_ranges);
   bool chLeft = left < dist - APPROACH_OBSTACLE_DIFF, chCenter = center < dist - APPROACH_OBSTACLE_DIFF, chRight = right < dist - APPROACH_OBSTACLE_DIFF;
   if(chLeft && chCenter && chRight) {
-    ang_vel = get_ang_vel(-LASER_ANGLE, max_speed, rate);
+    ang_vel = get_ang_vel(2.0 * LASER_ANGLE, max_speed, rate);
     return false;
   } else if(chLeft && chCenter || chLeft) {
-    ang_vel = get_ang_vel(LASER_ANGLE, max_speed, rate);
+    ang_vel = get_ang_vel(-2.0 * LASER_ANGLE, max_speed, rate);
     return false;
   } else if(chCenter && chRight || chRight) {
-    ang_vel = get_ang_vel(-LASER_ANGLE, max_speed, rate);
+    ang_vel = get_ang_vel(2.0 * LASER_ANGLE, max_speed, rate);
     return false;
   } else return true;
 }
@@ -344,7 +345,7 @@ void handleGotoFace() {
   goal_pub.publish(goal);
   STATE = APPROACH_FACE;
 }
-int no_rotations = 0; bool prev_clear = true;
+int no_rotations = 0; int clear_iter = 0;
 void handleApproachFace() {
   finale::ToggleQRNumService tqr; tqr.what = tqr.BOTH; tqr.to = true;
   qrnum_pub.publish(tqr);
@@ -359,8 +360,9 @@ void handleApproachFace() {
 
     double vel; bool clear = check_approach(distance_to_target, vel, 0.5, ROS_RATE);
 
-    if(abs(angle_to_target) > MAX_APPROACH_ANGLE || !clear) {
-      prev_clear = clear;
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE && clear_iter < 1 || !clear) {
+      if(!clear) clear_iter = CLEAR_FORWARD_ITERATIONS;
+      else clear_iter = 0;
       // Rotate
       ROS_INFO("ROTATE");
       double ang_vel;
@@ -370,8 +372,8 @@ void handleApproachFace() {
       double dang = -ang_vel * (1.0 / (double)ROS_RATE);
       recent->position.x = cos(angle_to_target + dang) * distance_to_target;
       recent->position.y = sin(angle_to_target + dang) * distance_to_target;
-    } else if(abs(distance_to_target) > 0.5 || !prev_clear) {
-      prev_clear = clear;
+    } else if(abs(distance_to_target) > 0.5 || clear_iter > 0) {
+      clear_iter--;
       // Move forward
       ROS_INFO("FORWARD %f %f", distance_to_target, MAX_APPROACH_DISTANCE);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
@@ -386,7 +388,7 @@ void handleApproachFace() {
       double dlin = lin_vel * (1.0 / (double)ROS_RATE);
       recent->position.x -= dlin;
     } else {
-      prev_clear = true;
+      clear_iter = 0;
       // Stop
       ROS_INFO("STOP");
       velocity_pub.publish(getTwist(0, 0));
@@ -420,7 +422,7 @@ void handleInteractFace() {
   finale::ToggleQRNumService tqr; tqr.what = tqr.BOTH; tqr.to = false;
   qrnum_pub.publish(tqr);
   finale::RecogniseSpeech srv; srv.request.question = srv.request.Q1;
-  if((std::get<0>(recent_num) - ros::Time::now()).toSec() < 4.0 * MAX_TIME_DIFF) {
+  if((std::get<0>(recent_num) - ros::Time::now()).toSec() < 2.0 * MAX_TIME_DIFF) {
     int x1 = std::get<1>(recent_num), x2 = std::get<2>(recent_num);
     ROS_INFO("Recent num %d %d", x1, x2);
     if(x1 * 10 + x2 > 200) std::get<0>(curr_face->data) = -1;
@@ -435,6 +437,7 @@ void handleInteractFace() {
       data_t<cyldata> *cl = findByColour(srv.response.colour, cylinders);
       if(cl != NULL) {
         // Already found cylinder
+        ROS_INFO("Requested cylinder already found");
         if(srv.request.askAge) std::get<0>(curr_face->data) = srv.response.age;
         if(curr_face == NULL) ROS_INFO("Curr face is null");
         std::get<1>(cl->data) = curr_face;
@@ -442,6 +445,7 @@ void handleInteractFace() {
         cyl_list.push_back(cl);
       } else {
         // Cylinder not yet found
+        ROS_INFO("Requested cylinder not yet found");
         cyl_requests.push_back(cyldata(srv.response.colour, curr_face));
       }
     }
@@ -476,8 +480,9 @@ void handleApproachCylinder() {
 
     double vel; bool clear = check_approach(distance_to_target, vel, 0.5, ROS_RATE);
 
-    if(abs(angle_to_target) > MAX_APPROACH_ANGLE || !clear) {
-      prev_clear = clear;
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE && clear_iter < 1 || !clear) {
+      if(!clear) clear_iter = CLEAR_FORWARD_ITERATIONS;
+      else clear_iter = 0;
       // Rotate
       ROS_INFO("ROTATE");
       double ang_vel;
@@ -487,8 +492,8 @@ void handleApproachCylinder() {
       double dang = -ang_vel * (1.0 / (double)ROS_RATE);
       recent->position.z = cos(angle_to_target + dang) * distance_to_target;
       recent->position.x = -sin(angle_to_target + dang) * distance_to_target;
-    } else if(abs(distance_to_target) > MAX_APPROACH_DISTANCE || !prev_clear) {
-      prev_clear = clear;
+    } else if(abs(distance_to_target) > MAX_APPROACH_DISTANCE || clear_iter > 0) {
+      clear_iter--;
       // Move forward
       ROS_INFO("FORWARD %f %f", distance_to_target, MAX_APPROACH_DISTANCE);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
@@ -503,7 +508,7 @@ void handleApproachCylinder() {
       double dlin = lin_vel * (1.0 / (double)ROS_RATE);
       recent->position.z -= dlin;
     } else {
-      prev_clear = true;
+      clear_iter = 0;
       // Stop
       ROS_INFO("STOP");
       velocity_pub.publish(getTwist(0, 0));
@@ -552,10 +557,12 @@ void handleInteractCylinder() {
     data_t<ringdata> *cl = findByColour(clr, rings);
     if(cl != NULL) {
       // Already found ring
+      ROS_INFO("Requested ring already found");
       std::get<1>(cl->data) = face;
       ring_list.push_back(cl);
     } else {
       // Ring not yet found
+      ROS_INFO("Requested cylinder not yet found");
       ring_requests.push_back(ringdata(clr, face));
     }
     curr_cyl == NULL;
@@ -586,8 +593,9 @@ void handleApproachRing() {
 
     double vel; bool clear = check_approach(distance_to_target, vel, 0.5, ROS_RATE);
 
-    if(abs(angle_to_target) > MAX_APPROACH_ANGLE || !clear) {
-      prev_clear = clear;
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE && clear_iter < 1 || !clear) {
+      if(!clear) clear_iter = CLEAR_FORWARD_ITERATIONS;
+      else clear_iter = 0;
       // Rotate
       ROS_INFO("ROTATE");
       double ang_vel;
@@ -598,8 +606,8 @@ void handleApproachRing() {
       recent->position.z = cos(angle_to_target + dang) * distance_to_target;
       recent->position.x = -sin(angle_to_target + dang) * distance_to_target;
       std::get<0>(recent_ring) = ros::Time::now();
-    } else if(abs(distance_to_target) > 0.1 || !prev_clear) {
-      prev_clear = clear;
+    } else if(abs(distance_to_target) > 0.1 || clear_iter > 0) {
+      clear_iter--;
       // Move forward
       ROS_INFO("FORWARD %f %f", distance_to_target, 0.1);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
@@ -608,7 +616,7 @@ void handleApproachRing() {
       recent->position.z -= dlin;
       std::get<0>(recent_ring) = ros::Time::now();
     } else {
-      prev_clear = true;
+      clear_iter = 0;
       // Stop
       ROS_INFO("STOP");
       velocity_pub.publish(getTwist(0, 0));
@@ -664,8 +672,9 @@ void handleApproachDelivery() {
 
     double vel; bool clear = check_approach(distance_to_target, vel, 0.5, ROS_RATE);
 
-    if(abs(angle_to_target) > MAX_APPROACH_ANGLE || !clear) {
-      prev_clear = clear;
+    if(abs(angle_to_target) > MAX_APPROACH_ANGLE && clear_iter < 1 || !clear) {
+      if(!clear) clear_iter = CLEAR_FORWARD_ITERATIONS;
+      else clear_iter = 0;
       // Rotate
       ROS_INFO("ROTATE");
       double ang_vel;
@@ -675,8 +684,8 @@ void handleApproachDelivery() {
       double dang = -ang_vel * (1.0 / (double)ROS_RATE);
       recent->position.x = cos(angle_to_target + dang) * distance_to_target;
       recent->position.y = sin(angle_to_target + dang) * distance_to_target;
-    } else if(abs(distance_to_target) > MAX_APPROACH_DISTANCE || !prev_clear) {
-      prev_clear = clear;
+    } else if(abs(distance_to_target) > MAX_APPROACH_DISTANCE || clear_iter > 0) {
+      clear_iter--;
       // Move forward
       ROS_INFO("FORWARD %f %f", distance_to_target, MAX_APPROACH_DISTANCE);
       double lin_vel = get_lin_vel(distance_to_target, 0.2, ROS_RATE);
@@ -691,7 +700,7 @@ void handleApproachDelivery() {
       double dlin = lin_vel * (1.0 / (double)ROS_RATE);
       recent->position.x -= dlin;
     } else {
-      prev_clear = true;
+      clear_iter = 0;
       // Stop
       ROS_INFO("STOP");
       velocity_pub.publish(getTwist(0, 0));

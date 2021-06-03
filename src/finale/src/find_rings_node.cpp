@@ -35,8 +35,8 @@
 #define MIN_VALUE 0.0
 #define NO_COLORS 16 // do not change
 
-// hist, no_clrs(visibility), approach
-typedef std::tuple<std::vector<double>, int, geometry_msgs::Pose> ringdata;
+// hist, dist, approach
+typedef std::tuple<std::vector<double>, double, geometry_msgs::Pose> ringdata;
 typedef cv::Point3_<uint8_t> Pixel;
 
 tf2_ros::Buffer tfBuffer;
@@ -308,8 +308,8 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
     optical.point.y = -distance_to_target * sin(h_angle_to_target);
     optical.point.z = distance_to_target * cos(angle_to_target);
     // sendDebug(optical.point, "camera_depth_optical_frame", "camera");
-    geometry_msgs::TransformStamped transform;
-    geometry_msgs::PoseStamped curr_pose_null, pose; curr_pose_null.header = optical.header; curr_pose_null.pose.orientation.w = cos(M_PI / 4.0); curr_pose_null.pose.orientation.y = sin(M_PI / 4.0);
+    geometry_msgs::TransformStamped transform, tss2;
+    geometry_msgs::PoseStamped curr_pose_null, pose; curr_pose_null.header.stamp = optical.header.stamp; curr_pose_null.header.frame_id = "base_link"; curr_pose_null.pose.orientation.w = 1.0;
     geometry_msgs::PointStamped map;
     map.header.frame_id = "map";
     map.header.stamp = depth_msg->header.stamp;
@@ -317,14 +317,15 @@ void find_rings(const sensor_msgs::Image::ConstPtr &rgb_msg, const sensor_msgs::
     // ROS_WARN("Point in camera %f %f %f", optical.point.x, optical.point.y, optical.point.z);
     try {
       transform = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_msg->header.stamp);
+      tss2 = tfBuffer.lookupTransform("map", "base_link", depth_msg->header.stamp);
       tf2::doTransform(optical, map, transform);
-      tf2::doTransform(curr_pose_null, pose, transform);
-      pose.pose.position.z = 1.0;
+      tf2::doTransform(curr_pose_null, pose, tss2);
+      pose.pose.position.z = 0.0;
       // ROS_WARN("Point in map %f %f %f", map.point.x, map.point.y, map.point.z);
       geometry_msgs::Pose ring_pose; ring_pose.position = map.point; ring_pose.orientation.w = 1.0;
       geometry_msgs::Pose inCamera_pose; inCamera_pose.position = optical.point; inCamera_pose.orientation.w = cos(angle_to_target / 2.0); inCamera_pose.orientation.z = sin(angle_to_target / 2.0); // Should it be /2 ?
       // sendDebug(map.point, "map", "map");
-      clustering2d::cluster_t<ringdata> *cluster = clustering2d::cluster_t<ringdata>::getCluster(ring_pose, 0, ringdata(clr_hist, no_clrs, pose.pose), joinf);
+      clustering2d::cluster_t<ringdata> *cluster = clustering2d::cluster_t<ringdata>::getCluster(ring_pose, 0, ringdata(clr_hist, distance_to_target, pose.pose), joinf);
       if(cluster != NULL) {
         ring_c.push_front(*cluster);
         inCamera_temp.push_back(std::tuple<int, geometry_msgs::Pose>(cluster->id, inCamera_pose));

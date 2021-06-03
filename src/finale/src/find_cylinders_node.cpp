@@ -2,7 +2,7 @@
 #include <sstream>
 #include <ros/ros.h>
 
-#include <visualization_msgs/MarkerArray.h>
+#include <visualization_msgs/Marker.h>
 #include <geometry_msgs/PointStamped.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf2_ros/transform_listener.h>
@@ -61,6 +61,7 @@ ros::Publisher pubPlan;
 ros::Publisher pubCyl;
 ros::Publisher marker_pub;
 ros::Publisher cylinder_msg_pub;
+ros::Publisher debug_point_pub;
 
 std::list<clustering2d::cluster_t<cyldata>> cylinder_c;
 
@@ -83,6 +84,21 @@ std::string toString(std::list<clustering2d::cluster_t<cyldata>> &v) {
     ret << p.toString() << ", ";
   }
   return ret.str();
+}
+void sendDebug(geometry_msgs::Pose &p, const char *frame, const char *ns) {
+  visualization_msgs::Marker m;
+  m.ns = ns;
+  m.header.frame_id = frame;
+  m.header.stamp = ros::Time::now();
+  m.lifetime = ros::Duration(5);
+  m.id = 0;
+  m.pose = p;
+  m.scale.x = 0.3; m.scale.y = 0.05; m.scale.z = 0.05;
+  m.type = m.ARROW;
+  m.color.a = 1.0; m.color.g = 1.0;
+  m.action = m.ADD;
+  debug_point_pub.publish(m);
+  ROS_INFO("Debug point data for ns %s: position %f %f %f orientation %f %f %f %f", ns, p.position.x, p.position.y, p.position.z, p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
 }
 
 int toHubMsg(ros::Time stamp, std::list<clustering2d::cluster_t<cyldata>>& fs, std::tuple<int, geometry_msgs::Pose> &cs, finale::CylClusteringToHub& out, int mind) {
@@ -279,11 +295,11 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
     geometry_msgs::PoseStamped pose_null;
     geometry_msgs::PointStamped point_map;
     geometry_msgs::PoseStamped pose_map;
-    geometry_msgs::TransformStamped tss;
+    geometry_msgs::TransformStamped tss, tss2;
           
     point_camera.header.frame_id = "camera_depth_optical_frame";
     point_camera.header.stamp = depth_blob->header.stamp;
-    pose_null.header = point_camera.header; pose_null.pose.orientation.w = cos(M_PI / 2.0); pose_null.pose.orientation.y = sin(M_PI / 2.0);
+    pose_null.header.stamp = point_camera.header.stamp; pose_null.header.frame_id = "base_link"; pose_null.pose.orientation.w = 1.0;
     pose_map.header.stamp = depth_blob->header.stamp; pose_map.header.frame_id = "map";
 
 	  point_map.header.frame_id = "map";
@@ -295,9 +311,13 @@ void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &depth_blob) {
 
 	  try {
       tss = tfBuffer.lookupTransform("map", "camera_depth_optical_frame", depth_blob->header.stamp);
+      tss2 = tfBuffer.lookupTransform("map", "base_link", depth_blob->header.stamp);
       tf2::doTransform(point_camera, point_map, tss);
-      tf2::doTransform(pose_null, pose_map, tss);
+      tf2::doTransform(pose_null, pose_map, tss2);
       pose_map.pose.position.z = 0.0;
+      // sendDebug(pose_map.pose, "map", "cylinder");
+      // std::cout << pose_null.pose << std::endl;
+      // std::cout << pose_map.pose << std::endl;
       // tfBuffer.transform<geometry_msgs::PointStamped>(point_camera, point_map, "map", ros::Duration(0.1));
       // std::cerr << "point_camera: " << point_camera.point.x << " " <<  point_camera.point.y << " " <<  point_camera.point.z << std::endl;
       // std::cerr << "point_map: " << point_map.point.x << " " <<  point_map.point.y << " " <<  point_map.point.z << std::endl;
@@ -346,8 +366,9 @@ int main (int argc, char** argv)
   ros::Subscriber sub = nh.subscribe ("/camera/depth/points", 1, cloud_cb);
 
   // Create a ROS publisher for the output point cloud
-  pubPlan = nh.advertise<pcl::PCLPointCloud2> ("planes", 1);
-  pubCyl = nh.advertise<sensor_msgs::PointCloud2> ("finale/cylinder_cloud", 1);
+  pubPlan = nh.advertise<pcl::PCLPointCloud2>("planes", 1);
+  pubCyl = nh.advertise<sensor_msgs::PointCloud2>("finale/cylinder_cloud", 1);
+  debug_point_pub = nh.advertise<visualization_msgs::Marker>("debug/cylinders", 10);
   // marker_pub = nh.advertise<visualization_msgs::MarkerArray>("finale/markers", 1000);
   cylinder_msg_pub = nh.advertise<finale::CylClusteringToHub>("finale/cylinders", 1000);
 
