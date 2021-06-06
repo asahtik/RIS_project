@@ -21,11 +21,11 @@ def callback_laser(dt):
     desno = dt.ranges[0]
     
     if math.isnan(levo):
-      levo = 2
+      levo = 0
     if math.isnan(sredina):
-      sredina = 2
+      sredina = 0
     if math.isnan(desno):
-      desno = 2
+      desno = 0
 
 def callback_toggle(tg):
   global drive 
@@ -42,6 +42,7 @@ def vozi():
     
     while not rospy.is_shutdown():
       if drive:
+        print("Driving")
         if stevc % 100 == 0:
           stevc = 0
           i = 0
@@ -76,7 +77,8 @@ def vozi():
               print('Obstacle! Turning right.')
               rate.sleep()
       else:
-        stevc = 0
+        print("Not driving")
+        stevc = 1
         
     	
         

@@ -14,7 +14,7 @@ USE_MICROPHONE = False
 
 confirmation = ["no", "yes"]
 clinics = ["red", "green", "blue", "yellow"]
-numbers = [["0", "zero", "no", "oh"], ["1", "one", "single"], ["2", "two"], ["3", "three", "tree"], ["4", "four", "for"], ["5", "five"], ["6", "six"], ["7", "seven"], ["8", "eight", "ate"], ["9", "nine"], ["10", "ten"], ["11", "eleven"], ["12", "twelve"]]
+numbers = [["0", "zero", "no", "oh"], ["1", "one", "single"], ["2", "two"], ["3", "three", "tree"], ["4", "four", "for"], ["5", "five"], ["6", "six"], ["7", "seven"], ["8", "eight", "ate"], ["9", "nine"], ["10", "ten"], ["11", "eleven"], ["12", "twelve"], ["13"], ["14"], ["15"], ["16"], ["17"], ["18"], ["19"], ["20"], ["21"], ["22"], ["23"], ["24"]]
 questions = ["Have you been vaccinated?", "Who is your personal doctor?", "How many hours per day do you exercise?", "Here is your vaccine, can I vaccinate you?", "How old are you?"]
 
 class SpeechTranscriber:
@@ -41,6 +41,10 @@ class SpeechTranscriber:
             match = self.match_in_string(sent, confirmation)
             if len(match) == 1:
                 self.data.append(match[0])
+                if(match[0] == 1):
+                    self.sentence = 10
+                    self.data.append(0)
+                    self.data.append(0)
                 self.sentence = self.sentence + 1
         elif self.sentence == 1:
             # Who is your personal doctor?

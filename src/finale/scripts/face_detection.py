@@ -55,33 +55,12 @@ class face_localizer:
         # Get the angles in the base_link relative coordinate system
         face_x = self.dims[1] / 2 - (x1+x2)/2.
         angle_to_target = np.arctan2(face_x, k_f)
-        x, y = dist[0]*np.cos(angle_to_target), dist[0]*np.sin(angle_to_target)
+        x, y = dist*np.cos(angle_to_target), dist*np.sin(angle_to_target)
 
-        # Get coordinates of left edge center
-        edge_x = self.dims[1] / 2 - x1
-        edge_y = self.dims[0] / 2 - (y1+y2)/2.
-        
-        angle_to_targetxy = np.arctan2(edge_x, k_f)
-        angle_to_targetxz = np.arctan2(edge_y, k_f)
-        
-        c_left_edge = (dist[1]*np.cos(angle_to_targetxy), dist[1]*np.sin(angle_to_targetxy), dist[1]*np.sin(angle_to_targetxz))
-
-        # Get coordinates of right edge center
-        edge_x = self.dims[1] / 2 - x2
-        edge_y = self.dims[0] / 2 - (y1+y2)/2.
-        
-        angle_to_targetxy = np.arctan2(edge_x, k_f)
-        angle_to_targetxz = np.arctan2(edge_y, k_f)
-
-        c_right_edge = (dist[2]*np.cos(angle_to_targetxy), dist[2]*np.sin(angle_to_targetxy), dist[2]*np.sin(angle_to_targetxz))
-
-        # TODO TEST
-
-        n_face = np.cross((0, 0, 1), np.subtract(c_left_edge, c_right_edge))
-        n_face_angle = np.arctan2(n_face[1], n_face[0])
-        print("Face angle", n_face_angle * (180 / math.pi))
-        # print("Approach angle", angle_to_target * (180 / math.pi))
-        # TODO? angle checking
+        if(angle_to_target < 0):
+            angle_to_target = math.pi + angle_to_target
+        else:
+            angle_to_target = -math.pi + angle_to_target
 
         pose_s = PoseStamped()
         pose_s.pose.position.x = x
@@ -89,8 +68,8 @@ class face_localizer:
         pose_s.pose.position.z = 0
         pose_s.pose.orientation.x = 0.0
         pose_s.pose.orientation.y = 0.0
-        pose_s.pose.orientation.z = np.sin(n_face_angle / 2.0)
-        pose_s.pose.orientation.w = np.cos(n_face_angle / 2.0)
+        pose_s.pose.orientation.z = np.sin(angle_to_target / 2.0)
+        pose_s.pose.orientation.w = np.cos(angle_to_target / 2.0)
         pose_s.header.frame_id = "camera_rgb_frame"
         pose_s.header.stamp = stamp
 
@@ -102,8 +81,9 @@ class face_localizer:
         try:
             # point_world = self.tf_buf.transform(point_s, "map")
             transform = self.tf_buf.lookup_transform("map", pose_s.header.frame_id, rospy.Time(0), rospy.Duration(0.5))
-            pose = tf2_geometry_msgs.do_transform_pose(pose_s, transform)
+            # TODO revert to original angle calc. 
             apprch_pose = tf2_geometry_msgs.do_transform_pose(pose_null, transform)
+            pose = tf2_geometry_msgs.do_transform_pose(pose_s, transform)
             # print(pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w)
         except Exception as e:
             print(e)
@@ -181,9 +161,9 @@ class face_localizer:
                 #cv2.waitKey(1)
 
                 # Find the distance to the detected face (dist to center, dist to left edge, dist to right edge, avg dist to top edge, avg dist to bottom edge)
-                face_distance = (float(np.nanmean(depth_image[y1:y2,x1:x2])), float(np.nanmean(depth_image[y1:y2,(x1-1):(x1+1)])), float(np.nanmean(depth_image[y1:y2,(x2-1):(x2+1)])), float(np.nanmean(depth_image[(y1-1):(y1+1), x1:x2])), float(np.nanmean(depth_image[(y2-1):(y2+1), x1:x2])))
+                face_distance = float(np.nanmean(depth_image[y1:y2,x1:x2]))
 
-                print('Distance to face', face_distance[0])
+                print('Distance to face', face_distance)
 
                 # Get the time that the depth image was recieved
                 depth_time = depth_image_message.header.stamp

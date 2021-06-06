@@ -31,7 +31,7 @@ double min_dist, max_angle;
 int min_det = 2, max_unvisited = 1;
 
 approachp joinf(const clustering2d::cluster_t<approachp> &a, const clustering2d::cluster_t<approachp> &b) {
-  if(abs(std::get<0>(a.data)) < abs(std::get<0>(b.data))) return a.data;
+  if(a.id > b.id) return a.data;
   else return b.data;
 }
 

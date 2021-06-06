@@ -6,7 +6,7 @@
 
   <node pkg="finale" type="face_clustering2" name="face_clustering" output="log">
     <param name="min_dist" value="0.5" type="double" />
-    <param name="max_angle" value="1.6" type="double" />
+    <param name="max_angle" value="2.0" type="double" />
     <param name="min_det" value="2" type="int" />
   </node>
 
